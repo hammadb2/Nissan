@@ -57,27 +57,49 @@ npm run dev
 
 ## Quo Webhook Configuration
 
-Point Quo's webhooks to:
-```
-POST https://your-domain.vercel.app/api/webhooks/quo
-```
+In Quo's webhook settings, create a webhook with:
+- **URL:** `https://your-domain.vercel.app/api/webhooks/quo`
+- **Label:** `Call Intelligence Dashboard`
+- **Events:** Check `call.transcript.completed` and `call.summary.completed`
+- **Receive updates from all phone numbers:** ON
 
-Expected payload format:
+Quo sends two separate webhook events per call:
+
+**`call.transcript.completed`** — contains the full dialogue as structured entries:
 ```json
 {
-  "call_id": "unique-call-id",
-  "type": "transcript",
-  "transcript": "Full call transcript text...",
-  "caller_name": "John Smith",
-  "caller_phone": "+1234567890",
-  "agent_name": "Jea",
-  "duration_seconds": 180,
-  "started_at": "2025-01-15T10:00:00Z",
-  "ended_at": "2025-01-15T10:03:00Z"
+  "type": "call.transcript.completed",
+  "data": {
+    "resource": {
+      "callId": "AC-call-id",
+      "duration": 180,
+      "processingStatus": "completed",
+      "dialogue": [
+        { "userId": "US123", "identifier": null, "content": "Hi, how can I help?", "start": 0, "end": 3 },
+        { "userId": null, "identifier": "+15550000002", "content": "I'm interested in a vehicle.", "start": 3, "end": 7 }
+      ]
+    },
+    "context": {
+      "participants": { "workspace": ["+15550000001"], "external": ["+15550000002"] }
+    }
+  }
 }
 ```
 
-Send a second webhook with `"type": "summary"` and `"summary"` field for the AI summary.
+**`call.summary.completed`** — contains the AI-generated summary and next steps:
+```json
+{
+  "type": "call.summary.completed",
+  "data": {
+    "resource": {
+      "callId": "AC-call-id",
+      "processingStatus": "completed",
+      "summary": ["Customer asked about pricing for a 2024 Sentra."],
+      "nextSteps": ["Send follow-up email with pricing details."]
+    }
+  }
+}
+```
 
 ## API Endpoints
 

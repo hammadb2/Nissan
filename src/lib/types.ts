@@ -81,15 +81,68 @@ export interface DashboardStats {
   recentBuyerFlags: number;
 }
 
-export interface QuoWebhookPayload {
-  call_id?: string;
-  type: "transcript" | "summary";
-  transcript?: string;
-  summary?: string;
-  caller_name?: string;
-  caller_phone?: string;
-  agent_name?: string;
-  duration_seconds?: number;
-  started_at?: string;
-  ended_at?: string;
+// --- Quo Webhook Types (matches real Quo API) ---
+
+export interface QuoCallContext {
+  phoneNumberId: string | null;
+  conversationId: string | null;
+  phoneNumberType: "shared" | "private" | "external" | null;
+  userId: string;
+  contacts: {
+    ids: string[];
+    lookupStatus: "matched" | "none" | "unavailable";
+  };
+  participants: {
+    workspace: string[];
+    external: string[];
+    resolution: "available" | "unavailable";
+  };
 }
+
+export interface QuoDialogueEntry {
+  userId: string | null;
+  identifier: string | null;
+  content: string;
+  start: number;
+  end: number;
+}
+
+export interface QuoTranscriptPayload {
+  id: string;
+  apiVersion: string;
+  createdAt: string;
+  type: "call.transcript.completed";
+  data: {
+    resource: {
+      callId: string;
+      createdAt: string;
+      duration: number;
+      processingStatus: "absent" | "in-progress" | "completed" | "failed";
+      dialogue: QuoDialogueEntry[] | null;
+    };
+    context: QuoCallContext;
+    links: { quo: string | null };
+  };
+}
+
+export interface QuoSummaryPayload {
+  id: string;
+  apiVersion: string;
+  createdAt: string;
+  type: "call.summary.completed";
+  data: {
+    resource: {
+      callId: string;
+      processingStatus: "absent" | "in-progress" | "completed" | "failed";
+      summary: string[] | null;
+      nextSteps: string[] | null;
+      fromPhoneNumber: string | null;
+      handledByAiAgent: boolean;
+      answeredByUserId: string | null;
+    };
+    context: QuoCallContext;
+    links: { quo: string | null };
+  };
+}
+
+export type QuoWebhookPayload = QuoTranscriptPayload | QuoSummaryPayload;
