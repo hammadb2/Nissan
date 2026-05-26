@@ -22,11 +22,22 @@ export default function CallsPage() {
   const [calls, setCalls] = useState<CallRecordWithContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{
+    phase: string;
+    message: string;
+    totalCalls: number;
+    newCalls: number;
+    updatedCalls: number;
+    skippedCalls: number;
+    lastPhone?: string;
+    lastDirection?: string;
+  } | null>(null);
   const [syncResult, setSyncResult] = useState<{
     status: string;
     totalCalls: number;
     newCalls: number;
     updatedCalls: number;
+    skippedCalls: number;
     errors?: string[];
   } | null>(null);
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
@@ -58,6 +69,8 @@ export default function CallsPage() {
   async function handleSync() {
     setSyncing(true);
     setSyncResult(null);
+    setSyncProgress({ phase: "starting", message: "Starting sync...", totalCalls: 0, newCalls: 0, updatedCalls: 0, skippedCalls: 0 });
+
     try {
       const body: Record<string, string> = {};
       if (dateFilter) {
@@ -68,8 +81,78 @@ export default function CallsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      setSyncResult(data);
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let lastRefresh = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let currentEvent = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7);
+          } else if (line.startsWith("data: ") && currentEvent) {
+            const data = JSON.parse(line.slice(6));
+
+            if (currentEvent === "progress") {
+              setSyncProgress({
+                phase: data.phase,
+                message: data.message,
+                totalCalls: data.totalCalls ?? 0,
+                newCalls: data.newCalls ?? 0,
+                updatedCalls: data.updatedCalls ?? 0,
+                skippedCalls: data.skippedCalls ?? 0,
+              });
+            } else if (currentEvent === "call_synced") {
+              setSyncProgress({
+                phase: "syncing",
+                message: `${data.isNew ? "New" : "Updated"}: ${data.phone}`,
+                totalCalls: data.totalCalls,
+                newCalls: data.newCalls,
+                updatedCalls: data.updatedCalls,
+                skippedCalls: data.skippedCalls,
+                lastPhone: data.phone,
+                lastDirection: data.direction,
+              });
+              const now = Date.now();
+              if (now - lastRefresh > 3000) {
+                lastRefresh = now;
+                fetchCalls();
+              }
+            } else if (currentEvent === "complete") {
+              setSyncResult({
+                status: "complete",
+                totalCalls: data.totalCalls,
+                newCalls: data.newCalls,
+                updatedCalls: data.updatedCalls,
+                skippedCalls: data.skippedCalls,
+                errors: data.errors,
+              });
+            } else if (currentEvent === "error") {
+              setSyncResult({
+                status: "error",
+                totalCalls: 0,
+                newCalls: 0,
+                updatedCalls: 0,
+                skippedCalls: 0,
+                errors: [data.message],
+              });
+            }
+            currentEvent = "";
+          }
+        }
+      }
+
       await fetchCalls();
     } catch (err) {
       setSyncResult({
@@ -77,10 +160,12 @@ export default function CallsPage() {
         totalCalls: 0,
         newCalls: 0,
         updatedCalls: 0,
+        skippedCalls: 0,
         errors: [err instanceof Error ? err.message : "Sync failed"],
       });
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   }
 
@@ -266,6 +351,25 @@ export default function CallsPage() {
         </div>
       </div>
 
+      {/* Live Sync Progress */}
+      {syncProgress && !syncResult && (
+        <div className="rounded-lg p-4 bg-blue-50 border border-blue-200">
+          <div className="flex items-center gap-2 mb-2">
+            <RefreshCw size={16} className="text-blue-600 animate-spin" />
+            <span className="font-medium text-blue-900">Syncing from Quo</span>
+          </div>
+          <p className="text-sm text-blue-800 mb-2">{syncProgress.message}</p>
+          {syncProgress.totalCalls > 0 && (
+            <div className="flex gap-4 text-xs text-blue-700">
+              <span>{syncProgress.totalCalls} found</span>
+              <span className="font-medium text-green-700">{syncProgress.newCalls} new</span>
+              <span className="font-medium text-yellow-700">{syncProgress.updatedCalls} updated</span>
+              <span className="text-gray-500">{syncProgress.skippedCalls} skipped</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Sync Result Banner */}
       {syncResult && (
         <div
@@ -288,7 +392,8 @@ export default function CallsPage() {
           {syncResult.status === "complete" && (
             <p className="text-sm mt-1 text-gray-600">
               Found {syncResult.totalCalls} calls — {syncResult.newCalls} new,{" "}
-              {syncResult.updatedCalls} updated. Daily stats have been refreshed.
+              {syncResult.updatedCalls} updated, {syncResult.skippedCalls} already synced.
+              Daily stats have been refreshed.
             </p>
           )}
           {syncResult.errors && syncResult.errors.length > 0 && (
