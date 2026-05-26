@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -12,18 +12,26 @@ import {
   PhoneIncoming,
   ClipboardList,
   Calendar,
+  LogOut,
 } from "lucide-react";
 
-const navItems = [
-  { href: "/dashboard/boss", label: "Boss View", icon: LayoutDashboard },
-  { href: "/dashboard/jea", label: "Jea", icon: Phone },
-  { href: "/dashboard/dann", label: "Dann", icon: ShoppingBag },
-  { href: "/dashboard/call-list", label: "Call List", icon: ClipboardList },
-  { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
-  { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming },
-  { href: "/dashboard/contacts", label: "Contacts", icon: Users },
-  { href: "/dashboard/import", label: "Import", icon: Upload },
+type UserRole = "hammad" | "jea" | "dann";
+
+const allNavItems = [
+  { href: "/dashboard/boss", label: "Boss View", icon: LayoutDashboard, roles: ["hammad"] },
+  { href: "/dashboard/jea", label: "Jea", icon: Phone, roles: ["hammad", "jea"] },
+  { href: "/dashboard/dann", label: "Dann", icon: ShoppingBag, roles: ["hammad", "dann"] },
+  { href: "/dashboard/call-list", label: "Call List", icon: ClipboardList, roles: ["hammad", "jea"] },
+  { href: "/dashboard/appointments", label: "Appts", icon: Calendar, roles: ["hammad", "jea"] },
+  { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming, roles: ["hammad"] },
+  { href: "/dashboard/contacts", label: "Contacts", icon: Users, roles: ["hammad"] },
+  { href: "/dashboard/import", label: "Import", icon: Upload, roles: ["hammad"] },
 ];
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 export default function DashboardLayout({
   children,
@@ -32,6 +40,16 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const syncRef = useRef(false);
+  const [role] = useState<UserRole | null>(() => {
+    if (typeof document === "undefined") return null;
+    return getCookie("bdc_role") as UserRole | null;
+  });
+
+  useEffect(() => {
+    if (!role) {
+      window.location.assign("/login");
+    }
+  }, [role]);
 
   useEffect(() => {
     async function syncRecent() {
@@ -48,12 +66,30 @@ export default function DashboardLayout({
     return () => clearInterval(timer);
   }, []);
 
+  async function handleLogout() {
+    await fetch("/api/auth/pin", { method: "DELETE" });
+    document.cookie = "bdc_role=; path=/; max-age=0";
+    window.location.assign("/login");
+  }
+
+  const navItems = role
+    ? allNavItems.filter((item) => item.roles.includes(role))
+    : [];
+
+  if (!role) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            <Link href="/dashboard/boss" className="font-bold text-lg">
+            <Link href={navItems[0]?.href ?? "/dashboard/boss"} className="font-bold text-lg">
               Hammad BDC
             </Link>
             <div className="flex items-center gap-1">
@@ -75,6 +111,13 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors ml-2"
+                title="Log out"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
         </div>

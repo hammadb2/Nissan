@@ -1,62 +1,75 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState, useRef } from "react";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState(["", "", "", ""]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) return null;
-    return createClient(url, key);
-  }, []);
+  function handleChange(index: number, value: string) {
+    if (!/^\d*$/.test(value)) return;
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    if (!supabase) {
-      setError("Configuration error — please refresh.");
-      return;
+    const newPin = [...pin];
+    newPin[index] = value.slice(-1);
+    setPin(newPin);
+    setError("");
+
+    if (value && index < 3) {
+      inputRefs.current[index + 1]?.focus();
     }
+
+    if (newPin.every((d) => d !== "")) {
+      submitPin(newPin.join(""));
+    }
+  }
+
+  function handleKeyDown(index: number, e: React.KeyboardEvent) {
+    if (e.key === "Backspace" && !pin[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
+    if (pasted.length === 4) {
+      const digits = pasted.split("");
+      setPin(digits);
+      submitPin(pasted);
+    }
+  }
+
+  async function submitPin(code: string) {
     setLoading(true);
     setError("");
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const res = await fetch("/api/auth/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: code }),
+      });
 
-    if (authError) {
-      setError(authError.message);
-      setLoading(false);
-      return;
-    }
-
-    // Redirect based on role
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (user) {
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
-      if (profile?.role === "hammad") {
-        window.location.href = "/dashboard/boss";
-      } else if (profile?.role === "jea") {
-        window.location.href = "/dashboard/jea";
-      } else if (profile?.role === "dann") {
-        window.location.href = "/dashboard/dann";
-      } else {
-        window.location.href = "/dashboard/boss";
+      if (!res.ok) {
+        setError("Invalid PIN");
+        setPin(["", "", "", ""]);
+        inputRefs.current[0]?.focus();
+        setLoading(false);
+        return;
       }
+
+      const data = await res.json();
+      const roleHome: Record<string, string> = {
+        hammad: "/dashboard/boss",
+        jea: "/dashboard/call-list",
+        dann: "/dashboard/dann",
+      };
+      window.location.assign(roleHome[data.role] ?? "/dashboard/boss");
+    } catch {
+      setError("Something went wrong");
+      setLoading(false);
     }
   }
 
@@ -65,49 +78,38 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-xl shadow-lg p-8">
           <h1 className="text-2xl font-bold text-center mb-2">Hammad BDC</h1>
-          <p className="text-gray-500 text-center text-sm mb-6">
-            Call Intelligence & CRM
+          <p className="text-gray-500 text-center text-sm mb-8">
+            Enter your PIN to continue
           </p>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
+          <div className="flex justify-center gap-3 mb-6">
+            {pin.map((digit, i) => (
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
+                key={i}
+                ref={(el) => { inputRefs.current[i] = el; }}
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                required
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleChange(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                onPaste={i === 0 ? handlePaste : undefined}
+                className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                disabled={loading}
+                autoFocus={i === 0}
               />
+            ))}
+          </div>
+
+          {error && (
+            <p className="text-red-600 text-sm text-center mb-4">{error}</p>
+          )}
+
+          {loading && (
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
             </div>
-
-            {error && (
-              <p className="text-red-600 text-sm">{error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 text-sm"
-            >
-              {loading ? "Signing in..." : "Sign In"}
-            </button>
-          </form>
+          )}
         </div>
       </div>
     </div>
