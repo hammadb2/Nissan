@@ -213,6 +213,39 @@ export async function GET() {
       }
     }
 
+    // --- Daily stats: reconcile today's call count ---
+    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStart = `${todayStr}T00:00:00.000Z`;
+    const todayEnd = `${todayStr}T23:59:59.999Z`;
+    const { count: dbCallCount } = await supabase
+      .from("call_records")
+      .select("*", { count: "exact", head: true })
+      .gte("called_at", todayStart)
+      .lte("called_at", todayEnd);
+
+    const actualCallCount = dbCallCount ?? 0;
+    const { data: existingStats } = await supabase
+      .from("daily_stats")
+      .select("*")
+      .eq("date", todayStr)
+      .eq("user_role", "jea")
+      .single();
+
+    if (existingStats) {
+      if (actualCallCount > (existingStats.calls_made ?? 0)) {
+        await supabase
+          .from("daily_stats")
+          .update({ calls_made: actualCallCount })
+          .eq("id", existingStats.id);
+      }
+    } else if (actualCallCount > 0) {
+      await supabase.from("daily_stats").insert({
+        date: todayStr,
+        user_role: "jea",
+        calls_made: actualCallCount,
+      });
+    }
+
     // --- GPT analysis pass: process up to 2 unanalyzed calls per cycle ---
     let analyzed = 0;
     const { data: unprocessed } = await supabase
@@ -251,14 +284,31 @@ export async function GET() {
           .eq("id", record.id);
 
         if (record.contact_id) {
+          // Preserve callback status — only update if GPT doesn't downgrade a callback
+          const { data: currentContact } = await supabase
+            .from("contacts")
+            .select("next_action")
+            .eq("id", record.contact_id)
+            .single();
+
+          const contactUpdate: Record<string, unknown> = {
+            interest_level: analysis.interest_level,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Only update next_action if current isn't "callback" or GPT also says callback
+          if (
+            currentContact?.next_action !== "callback" ||
+            analysis.next_action === "callback" ||
+            analysis.outcome === "booked"
+          ) {
+            contactUpdate.next_action = analysis.next_action;
+            contactUpdate.next_action_at = analysis.next_action_at;
+          }
+
           await supabase
             .from("contacts")
-            .update({
-              interest_level: analysis.interest_level,
-              next_action: analysis.next_action,
-              next_action_at: analysis.next_action_at,
-              updated_at: new Date().toISOString(),
-            })
+            .update(contactUpdate)
             .eq("id", record.contact_id);
         }
 
@@ -268,7 +318,7 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ synced, skipped, analyzed });
+    return NextResponse.json({ synced, skipped, analyzed, callsToday: actualCallCount });
   } catch (error) {
     console.error("Quick sync error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";

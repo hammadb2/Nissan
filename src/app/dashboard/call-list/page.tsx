@@ -31,6 +31,7 @@ interface CallListResponse {
   contacts: CallListContact[];
   total: number;
   calledToday: number;
+  callsToday: number;
   dailyLimit: number;
   remainingPool: number;
 }
@@ -58,6 +59,7 @@ export default function DailyCallListPage() {
   const [settingOutcome, setSettingOutcome] = useState<string | null>(null);
   const [dailyLimit, setDailyLimit] = useState(200);
   const [remainingPool, setRemainingPool] = useState(0);
+  const [callsToday, setCallsToday] = useState(0);
   const [markingCallId, setMarkingCallId] = useState<string | null>(null);
   const [markNotes, setMarkNotes] = useState("");
   const [markOutcome, setMarkOutcome] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export default function DailyCallListPage() {
     setContacts(data.contacts ?? []);
     setDailyLimit(data.dailyLimit ?? 200);
     setRemainingPool(data.remainingPool ?? 0);
+    setCallsToday(data.callsToday ?? data.calledToday ?? 0);
     setLoading(false);
   }, [showCalled]);
 
@@ -79,7 +82,7 @@ export default function DailyCallListPage() {
       if (cancelled) return;
     }
     init();
-    const interval = setInterval(fetchList, 30000);
+    const interval = setInterval(fetchList, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [fetchList]);
 
@@ -192,8 +195,9 @@ export default function DailyCallListPage() {
     }
   }
 
-  const calledCount = contacts.filter((c) => c.called_today).length;
-  const totalCount = contacts.length;
+  const calledInListCount = contacts.filter((c) => c.called_today).length;
+  const calledCount = Math.max(callsToday, calledInListCount);
+  const remainingCount = Math.max(0, dailyLimit - calledCount);
 
   if (loading) {
     return (
@@ -210,7 +214,7 @@ export default function DailyCallListPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Call List</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {calledCount}/{dailyLimit} called today · {totalCount - calledCount} remaining
+            <span className="font-semibold text-gray-700">{calledCount}</span> calls completed · <span className="font-semibold text-gray-700">{remainingCount}</span> remaining of {dailyLimit}
             {remainingPool > 0 && ` · ${remainingPool} in pool`}
           </p>
         </div>

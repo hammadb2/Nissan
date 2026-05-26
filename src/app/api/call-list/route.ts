@@ -73,24 +73,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // --- Step 4: Fetch today's assigned contacts ---
+  // --- Step 4: Fetch today's assigned contacts (hard cap at 200) ---
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select("*")
     .eq("assigned_call_date", todayDate)
     .eq("status", "active")
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(DAILY_LIMIT);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // --- Step 5: Get today's call records ---
+  // --- Step 5: Get ALL today's call records (not just linked ones) ---
   const { data: todayCalls } = await supabase
     .from("call_records")
-    .select("contact_id, outcome, gpt_summary, quo_summary, called_at, duration_seconds")
+    .select("id, contact_id, outcome, gpt_summary, quo_summary, called_at, duration_seconds")
     .gte("called_at", todayISO);
 
+  // Build map of contact_id -> most recent call result
   const calledMap = new Map<string, {
     outcome: string | null;
     summary: string | null;
@@ -111,6 +113,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Total calls today from call_records (accurate count regardless of contact linking)
+  const totalCallsToday = (todayCalls ?? []).length;
+
   // --- Step 6: Filter and sort ---
   const now = new Date();
   const filtered = (contacts ?? []).filter((c) => {
@@ -122,6 +127,7 @@ export async function GET(req: NextRequest) {
   });
 
   const sorted = filtered.sort((a, b) => {
+    // Callback contacts first
     if (a.next_action === "callback" && b.next_action !== "callback") return -1;
     if (a.next_action !== "callback" && b.next_action === "callback") return 1;
     if (a.interest_level === "hot" && b.interest_level !== "hot") return -1;
@@ -145,6 +151,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Count contacts that were called today (linked to contacts in list)
+  const calledContactsCount = calledMap.size;
+
   // --- Step 7: Get total pool stats ---
   const { count: totalPool } = await supabase
     .from("contacts")
@@ -156,7 +165,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     contacts: list,
     total: list.length,
-    calledToday: calledMap.size,
+    calledToday: calledContactsCount,
+    callsToday: totalCallsToday,
     dailyLimit: DAILY_LIMIT,
     remainingPool: totalPool ?? 0,
   });
