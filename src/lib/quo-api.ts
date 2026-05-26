@@ -135,6 +135,18 @@ export async function sendSMS(
   return data.data;
 }
 
+export async function listRecentCalls(
+  phoneNumberId: string,
+  createdAfter: string
+): Promise<{ data: QuoApiCall[]; nextPageToken?: string }> {
+  const params: Record<string, string> = {
+    phoneNumberId,
+    createdAfter,
+    maxResults: "50",
+  };
+  return quoFetch<{ data: QuoApiCall[]; nextPageToken?: string }>("/v1/calls", params);
+}
+
 export async function getAllCallsForParticipant(
   phoneNumberId: string,
   participant: string,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -30,6 +31,22 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const syncRef = useRef(false);
+
+  useEffect(() => {
+    async function syncRecent() {
+      if (syncRef.current) return;
+      syncRef.current = true;
+      try {
+        await fetch("/api/quo/sync-recent");
+      } catch { /* ignore network errors */ }
+      syncRef.current = false;
+    }
+
+    syncRecent();
+    const timer = setInterval(syncRecent, 10_000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">

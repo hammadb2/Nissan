@@ -269,7 +269,11 @@ export default function BossDashboard() {
                       )}
                     </div>
                     <p className="text-sm text-gray-500 mt-0.5">
-                      {call.gpt_summary ?? "Processing..."}
+                      {call.gpt_summary ?? call.quo_summary ?? (
+                        call.transcript_received
+                          ? "Analyzing..."
+                          : "Waiting for transcript..."
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
