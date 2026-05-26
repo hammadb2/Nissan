@@ -160,6 +160,18 @@ export async function GET(req: NextRequest) {
     const callList = calls ?? [];
     const stats = buildStats(callList);
 
+    // Count appointments from the appointments table for accuracy
+    // (handles rescheduled appointments that may not match call outcomes)
+    const { count: appointmentCount } = await supabase
+      .from("appointments")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", targetDate.toISOString())
+      .lt("created_at", nextDay.toISOString());
+
+    if (appointmentCount !== null && appointmentCount > stats.appointments_booked) {
+      stats.appointments_booked = appointmentCount;
+    }
+
     const includeAi = req.nextUrl.searchParams.get("ai") !== "false";
     let aiNotes: string | null = null;
 

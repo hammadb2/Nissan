@@ -28,7 +28,7 @@ const allNavItems = [
   { href: "/dashboard/call-list", label: "Call List", icon: ClipboardList, roles: ["hammad", "jea"] },
   { href: "/dashboard/appointments", label: "Appts", icon: Calendar, roles: ["hammad", "jea"] },
   { href: "/dashboard/coaching", label: "Coaching", icon: BookOpen, roles: ["hammad", "jea"] },
-  { href: "/dashboard/eod-report", label: "EOD Report", icon: FileText, roles: ["hammad", "jea"] },
+  { href: "/dashboard/eod-report", label: "EOD", icon: FileText, roles: ["hammad", "jea"] },
   { href: "/dashboard/objections", label: "Objections", icon: MessageCircle, roles: ["hammad", "jea"] },
   { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming, roles: ["hammad"] },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users, roles: ["hammad"] },
@@ -125,19 +125,18 @@ export default function DashboardLayout({
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               <Link href={navItems[0]?.href ?? "/dashboard/boss"} className="font-bold text-lg">
-                Hammad BDC
+                BDC
               </Link>
-              <div className="flex items-center gap-1.5 bg-gray-100 px-3 py-1 rounded-lg text-sm">
-                <Clock size={14} className="text-gray-500" />
+              <div className="hidden md:flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-lg text-xs">
+                <Clock size={12} className="text-gray-500" />
                 <span className="font-mono font-medium text-gray-700">{calgaryTime.time}</span>
                 <span className="text-gray-400">·</span>
                 <span className="text-gray-500">{calgaryTime.date}</span>
-                <span className="text-xs text-gray-400">MST</span>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 flex-wrap justify-end">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
@@ -145,23 +144,24 @@ export default function DashboardLayout({
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       isActive
                         ? "bg-blue-50 text-blue-700"
                         : "text-gray-600 hover:bg-gray-100"
                     }`}
+                    title={item.label}
                   >
-                    <Icon size={16} />
-                    <span className="hidden sm:inline">{item.label}</span>
+                    <Icon size={14} />
+                    <span className="hidden lg:inline">{item.label}</span>
                   </Link>
                 );
               })}
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors ml-2"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors ml-1"
                 title="Log out"
               >
-                <LogOut size={16} />
+                <LogOut size={14} />
               </button>
             </div>
           </div>
