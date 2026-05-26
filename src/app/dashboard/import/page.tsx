@@ -86,8 +86,20 @@ export default function ImportPage() {
               type="file"
               accept=".xlsx,.xls,.csv"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="w-full text-sm"
+              style={{ display: "none" }}
             />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-200 cursor-pointer"
+              >
+                Choose File
+              </button>
+              <span className="text-sm text-gray-500">
+                {file ? file.name : "No file chosen"}
+              </span>
+            </div>
           </div>
 
           <div>
