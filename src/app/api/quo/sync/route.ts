@@ -95,9 +95,24 @@ export async function POST(req: NextRequest) {
           // Check if we already have this call
           const { data: existing } = await supabase
             .from("call_records")
-            .select("id, transcript_received, summary_received, recording_url")
+            .select("id, transcript_received, summary_received, recording_url, from_number, to_number, direction")
             .eq("quo_call_id", call.id)
             .single();
+
+          // Skip if fully synced (all data already present)
+          if (
+            existing &&
+            existing.transcript_received &&
+            existing.summary_received &&
+            existing.recording_url &&
+            existing.from_number &&
+            existing.to_number &&
+            existing.direction
+          ) {
+            const callDate = call.createdAt.split("T")[0];
+            dailyCallCounts[callDate] = (dailyCallCounts[callDate] ?? 0) + 1;
+            continue;
+          }
 
           // Look up contact by external participant phone
           const externalPhone = call.participants.find((p) => p !== phoneNumber.number);
