@@ -1,4 +1,4 @@
-import openai from "./openai";
+import { getOpenAI } from "./openai";
 import type { AIAnalysis } from "./types";
 
 const SYSTEM_PROMPT = `You are a call analysis assistant for a Nissan dealership's outbound calling team. 
@@ -25,7 +25,7 @@ export async function analyzeCall(
 ${quoSummary ? `Quo AI Summary: ${quoSummary}\n\n` : ""}Transcript:
 ${transcript}`;
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
@@ -72,7 +72,7 @@ Recent Buyer Flag: ${c.is_recent_buyer ? "YES" : "No"}`
     )
     .join("\n\n");
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {

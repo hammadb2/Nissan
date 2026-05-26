@@ -6,6 +6,8 @@ import type {
   QuoDialogueEntry,
 } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 function dialogueToTranscript(dialogue: QuoDialogueEntry[]): string {
   return dialogue
     .map((entry) => {
