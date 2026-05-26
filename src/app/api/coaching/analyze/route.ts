@@ -26,54 +26,86 @@ CALLER SOP — South Trail Nissan (Key Rules):
 - Appointment slots: Mon-Thu 9:15/10:15/11:45/1:00/2:30/4:00/5:45, Fri-Sat drop 5:45, Sunday CLOSED
 `;
 
+interface CallRow {
+  id: string;
+  gpt_summary: string | null;
+  what_went_well: string | null;
+  coaching_tip: string | null;
+  outcome: string | null;
+  interest_level: string | null;
+  sentiment: string | null;
+  transcript: string | null;
+  duration_seconds: number | null;
+  called_at: string;
+}
+
 export async function GET() {
   const supabase = getSupabaseAdmin();
 
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
+  // Fetch ALL GPT-processed calls (paginate in batches of 1000)
+  const allCalls: CallRow[] = [];
+  let from = 0;
+  const batchSize = 1000;
 
-  const { data: calls } = await supabase
-    .from("call_records")
-    .select(
-      "id, gpt_summary, what_went_well, coaching_tip, outcome, interest_level, sentiment, transcript, duration_seconds, called_at"
-    )
-    .gte("called_at", weekAgo.toISOString())
-    .eq("gpt_processed", true)
-    .order("called_at", { ascending: false })
-    .limit(50);
+  while (true) {
+    const { data, error } = await supabase
+      .from("call_records")
+      .select(
+        "id, gpt_summary, what_went_well, coaching_tip, outcome, interest_level, sentiment, transcript, duration_seconds, called_at"
+      )
+      .eq("gpt_processed", true)
+      .order("called_at", { ascending: false })
+      .range(from, from + batchSize - 1);
 
-  if (!calls || calls.length === 0) {
+    if (error || !data || data.length === 0) break;
+    allCalls.push(...(data as CallRow[]));
+    if (data.length < batchSize) break;
+    from += batchSize;
+  }
+
+  if (allCalls.length === 0) {
     return NextResponse.json({
       coaching: null,
-      message: "No calls to analyze this week.",
+      message: "No calls to analyze yet.",
     });
   }
 
-  const callSummaries = calls
+  // Build concise summaries for every call
+  const callSummaries = allCalls
     .map((c, i) => {
       const duration = c.duration_seconds ? `${Math.round(c.duration_seconds / 60)}m` : "N/A";
-      return `Call ${i + 1} (${new Date(c.called_at).toLocaleDateString()}, ${duration}):
-Summary: ${c.gpt_summary ?? "N/A"}
-Outcome: ${c.outcome ?? "N/A"}
-Sentiment: ${c.sentiment ?? "N/A"}
-Interest: ${c.interest_level ?? "N/A"}
-Did Well: ${c.what_went_well ?? "N/A"}
-Coaching Tip: ${c.coaching_tip ?? "N/A"}`;
+      const date = new Date(c.called_at).toLocaleDateString("en-CA", {
+        timeZone: "America/Edmonton",
+      });
+      return `Call ${i + 1} (${date}, ${duration}):
+Summary: ${(c.gpt_summary ?? "N/A").slice(0, 300)}
+Outcome: ${c.outcome ?? "N/A"} | Sentiment: ${c.sentiment ?? "N/A"} | Interest: ${c.interest_level ?? "N/A"}
+Did Well: ${(c.what_went_well ?? "N/A").slice(0, 200)}
+Coaching Tip: ${(c.coaching_tip ?? "N/A").slice(0, 200)}`;
     })
     .join("\n\n");
 
-  const outcomes = calls.reduce<Record<string, number>>((acc, c) => {
+  const outcomes = allCalls.reduce<Record<string, number>>((acc, c) => {
     const key = c.outcome ?? "unknown";
     acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
 
-  const prompt = `You are a sales call coach for South Trail Nissan. Analyze Jea's recent calls and provide detailed coaching.
+  const dailyStats: Record<string, number> = {};
+  for (const c of allCalls) {
+    const date = new Date(c.called_at).toLocaleDateString("en-CA", {
+      timeZone: "America/Edmonton",
+    });
+    dailyStats[date] = (dailyStats[date] ?? 0) + 1;
+  }
+
+  const prompt = `You are a sales call coach for South Trail Nissan. Analyze ALL of Jea's calls and provide detailed coaching.
 
 ${SOP_CONTEXT}
 
-CALL DATA (${calls.length} calls this week):
+CALL DATA (${allCalls.length} total calls analyzed):
 Outcomes: ${JSON.stringify(outcomes)}
+Daily volume: ${JSON.stringify(dailyStats)}
 
 ${callSummaries}
 
@@ -81,7 +113,7 @@ Return JSON only:
 {
   "overall_grade": "A/B/C/D/F",
   "score": 0-100,
-  "summary": "2-3 sentence overall assessment",
+  "summary": "2-3 sentence overall assessment covering all calls",
   "doing_well": ["specific thing 1 with call reference", "specific thing 2"],
   "needs_improvement": ["specific issue 1 with call reference and what to do instead", "specific issue 2"],
   "sop_violations": ["any SOP rules being broken with specific examples"],
@@ -117,8 +149,8 @@ Return JSON only:
 
   return NextResponse.json({
     coaching,
-    call_count: calls.length,
+    call_count: allCalls.length,
     outcomes,
-    week_start: weekAgo.toISOString(),
+    daily_stats: dailyStats,
   });
 }
