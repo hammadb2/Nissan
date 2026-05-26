@@ -137,13 +137,15 @@ export async function sendSMS(
 
 export async function listRecentCalls(
   phoneNumberId: string,
-  createdAfter: string
+  createdAfter: string,
+  pageToken?: string
 ): Promise<{ data: QuoApiCall[]; nextPageToken?: string }> {
   const params: Record<string, string> = {
     phoneNumberId,
     createdAfter,
     maxResults: "50",
   };
+  if (pageToken) params.pageToken = pageToken;
   return quoFetch<{ data: QuoApiCall[]; nextPageToken?: string }>("/v1/calls", params);
 }
 
