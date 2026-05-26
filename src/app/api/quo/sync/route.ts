@@ -118,13 +118,14 @@ export async function POST(req: NextRequest) {
 
               const { data: existing } = await supabase
                 .from("call_records")
-                .select("id, transcript_received, summary_received, recording_url, from_number, to_number, direction")
+                .select("id, contact_id, transcript_received, summary_received, recording_url, from_number, to_number, direction")
                 .eq("quo_call_id", call.id)
                 .single();
 
-              // Skip if fully synced
+              // Skip if fully synced (including contact linked)
               if (
                 existing &&
+                existing.contact_id &&
                 existing.transcript_received &&
                 existing.summary_received &&
                 existing.recording_url &&
@@ -156,7 +157,26 @@ export async function POST(req: NextRequest) {
                   .select("id")
                   .eq("phone", customerPhone)
                   .single();
-                contactId = contact?.id ?? null;
+
+                if (contact) {
+                  contactId = contact.id;
+                } else {
+                  // Auto-create contact from phone number
+                  const { data: newContact } = await supabase
+                    .from("contacts")
+                    .insert({
+                      first_name: customerPhone,
+                      last_name: "",
+                      phone: customerPhone,
+                      status: "active",
+                      call_count: 0,
+                      is_recent_buyer: false,
+                      import_batch: "quo-sync",
+                    })
+                    .select("id")
+                    .single();
+                  contactId = newContact?.id ?? null;
+                }
               }
 
               let transcript: string | null = null;
@@ -269,6 +289,32 @@ export async function POST(req: NextRequest) {
                   { onConflict: "quo_call_id" }
                 );
                 newCalls++;
+              }
+
+              // Update contact call_count and last_called_at
+              if (contactId) {
+                const { count: contactCallCount } = await supabase
+                  .from("call_records")
+                  .select("*", { count: "exact", head: true })
+                  .eq("contact_id", contactId);
+
+                const updateData: Record<string, unknown> = {
+                  call_count: contactCallCount ?? 1,
+                };
+                const callTime = new Date(call.createdAt);
+                const { data: contactRow } = await supabase
+                  .from("contacts")
+                  .select("last_called_at")
+                  .eq("id", contactId)
+                  .single();
+                if (!contactRow?.last_called_at || callTime > new Date(contactRow.last_called_at)) {
+                  updateData.last_called_at = call.createdAt;
+                }
+
+                await supabase
+                  .from("contacts")
+                  .update(updateData)
+                  .eq("id", contactId);
               }
 
               send("call_synced", {
