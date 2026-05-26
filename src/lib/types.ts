@@ -179,7 +179,29 @@ export interface QuoCallContext {
   };
 }
 
-export type QuoWebhookPayload = QuoTranscriptPayload | QuoSummaryPayload | QuoMessagePayload;
+export type QuoWebhookPayload = QuoTranscriptPayload | QuoSummaryPayload | QuoMessagePayload | QuoCallCompletedPayload;
+
+export interface QuoCallCompletedPayload {
+  id: string;
+  apiVersion: string;
+  createdAt: string;
+  type: "call.completed";
+  data: {
+    resource: {
+      id: string;
+      phoneNumberId: string;
+      participants: string[];
+      direction: "incoming" | "outgoing";
+      status: string;
+      duration: number;
+      createdAt: string;
+      answeredAt: string | null;
+      completedAt: string | null;
+    };
+    context: QuoCallContext;
+    links: { quo: string | null };
+  };
+}
 
 export interface QuoMessagePayload {
   id: string;

@@ -66,7 +66,7 @@ export default function DashboardLayout({
     }
 
     syncRecent();
-    const timer = setInterval(syncRecent, 10_000);
+    const timer = setInterval(syncRecent, 5_000);
     return () => clearInterval(timer);
   }, []);
 

@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
       return handleIncomingSMS(body);
     }
 
+    // Handle call.completed — immediately create a call record when a call ends
+    if (eventType === "call.completed") {
+      return handleCallCompleted(body);
+    }
+
     if (
       eventType !== "call.transcript.completed" &&
       eventType !== "call.summary.completed"
@@ -140,14 +145,30 @@ export async function POST(req: NextRequest) {
 
         // Update contact record with extracted intelligence
         if (contactId) {
+          // Check if the contact is manually tagged as callback — preserve it
+          const { data: existingContact } = await supabase
+            .from("contacts")
+            .select("next_action")
+            .eq("id", contactId)
+            .single();
+
           const contactUpdate: Record<string, unknown> = {
             call_count: undefined,
             last_called_at: new Date().toISOString(),
             interest_level: analysis.interest_level,
-            next_action: analysis.next_action,
-            next_action_at: analysis.next_action_at,
             updated_at: new Date().toISOString(),
           };
+
+          // Only update next_action if contact isn't manually set to callback,
+          // or if GPT also says callback, or if the outcome is "booked"
+          if (
+            existingContact?.next_action !== "callback" ||
+            analysis.next_action === "callback" ||
+            analysis.outcome === "booked"
+          ) {
+            contactUpdate.next_action = analysis.next_action;
+            contactUpdate.next_action_at = analysis.next_action_at;
+          }
 
           if (analysis.vehicle_ownership_duration) {
             contactUpdate.vehicle_ownership_duration = analysis.vehicle_ownership_duration;
@@ -331,5 +352,105 @@ async function handleIncomingSMS(
   } catch (error) {
     console.error("SMS confirmation error:", error);
     return NextResponse.json({ error: "Failed to process SMS" }, { status: 500 });
+  }
+}
+
+async function handleCallCompleted(
+  body: QuoWebhookPayload
+): Promise<NextResponse> {
+  try {
+    if (body.type !== "call.completed") {
+      return NextResponse.json({ status: "ignored" });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const resource = body.data.resource;
+    const callId = resource.id;
+    const context = body.data.context;
+    const direction = resource.direction;
+    const duration = resource.duration ?? null;
+    const calledAt = resource.createdAt;
+
+    const externalParticipant = context.participants?.external?.[0];
+    const customerPhone = externalParticipant?.identifier
+      ? normalizePhone(externalParticipant.identifier)
+      : null;
+
+    const phoneNumberInfo = context.phoneNumber;
+    const agentNumber = phoneNumberInfo?.number ?? null;
+    const fromNumber = direction === "outgoing" ? agentNumber : customerPhone;
+    const toNumber = direction === "outgoing" ? customerPhone : agentNumber;
+
+    let contactId: string | null = null;
+    if (customerPhone) {
+      const { data: contact } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("phone", customerPhone)
+        .single();
+      contactId = contact?.id ?? null;
+    }
+
+    // Upsert the call record immediately (transcript/summary arrive later)
+    await supabase
+      .from("call_records")
+      .upsert(
+        {
+          quo_call_id: callId,
+          contact_id: contactId,
+          duration_seconds: duration,
+          called_at: calledAt,
+          direction,
+          from_number: fromNumber,
+          to_number: toNumber,
+          transcript_received: false,
+          summary_received: false,
+          gpt_processed: false,
+        },
+        { onConflict: "quo_call_id" }
+      );
+
+    // Update contact call_count and last_called_at
+    if (contactId) {
+      const { count: callCount } = await supabase
+        .from("call_records")
+        .select("*", { count: "exact", head: true })
+        .eq("contact_id", contactId);
+
+      await supabase
+        .from("contacts")
+        .update({
+          call_count: callCount ?? 1,
+          last_called_at: calledAt,
+        })
+        .eq("id", contactId);
+    }
+
+    // Increment daily_stats
+    const today = new Date().toISOString().split("T")[0];
+    const { data: existingStats } = await supabase
+      .from("daily_stats")
+      .select("*")
+      .eq("date", today)
+      .eq("user_role", "jea")
+      .single();
+
+    if (existingStats) {
+      await supabase
+        .from("daily_stats")
+        .update({ calls_made: (existingStats.calls_made ?? 0) + 1 })
+        .eq("id", existingStats.id);
+    } else {
+      await supabase.from("daily_stats").insert({
+        date: today,
+        user_role: "jea",
+        calls_made: 1,
+      });
+    }
+
+    return NextResponse.json({ status: "ok", callId });
+  } catch (error) {
+    console.error("Call completed webhook error:", error);
+    return NextResponse.json({ error: "Failed to process call.completed" }, { status: 500 });
   }
 }

@@ -61,6 +61,8 @@ export default function AppointmentsPage() {
   const [phone, setPhone] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
+  const [useCustomTime, setUseCustomTime] = useState(false);
+  const [customTimeInput, setCustomTimeInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
@@ -149,6 +151,8 @@ export default function AppointmentsPage() {
       setPhone("");
       setSelectedDate("");
       setSelectedTime("");
+      setUseCustomTime(false);
+      setCustomTimeInput("");
       fetchAppointments();
       fetchAvailability();
     } catch {
@@ -336,13 +340,16 @@ export default function AppointmentsPage() {
                     key={slot.time}
                     type="button"
                     onClick={() => {
-                      if (slot.available) setSelectedTime(slot.time);
+                      setSelectedTime(slot.time);
+                      setUseCustomTime(false);
+                      setCustomTimeInput("");
                     }}
-                    disabled={!slot.available}
                     className={`px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
                       !slot.available
-                        ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
-                        : selectedTime === slot.time
+                        ? selectedTime === slot.time && !useCustomTime
+                          ? "bg-blue-600 border-blue-600 text-white"
+                          : "bg-amber-50 border-amber-200 text-amber-700 hover:border-amber-400"
+                        : selectedTime === slot.time && !useCustomTime
                           ? "bg-blue-600 border-blue-600 text-white"
                           : "bg-white border-gray-200 text-gray-700 hover:border-blue-300"
                     }`}
@@ -353,6 +360,52 @@ export default function AppointmentsPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Custom Time Input */}
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseCustomTime(!useCustomTime);
+                    if (!useCustomTime) {
+                      setSelectedTime("");
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    useCustomTime
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "bg-white border-gray-200 text-gray-700 hover:border-blue-300"
+                  }`}
+                >
+                  <Clock size={14} />
+                  Custom Time
+                </button>
+                {useCustomTime && (
+                  <input
+                    type="time"
+                    value={customTimeInput}
+                    onChange={(e) => {
+                      setCustomTimeInput(e.target.value);
+                      if (e.target.value) {
+                        const [h, m] = e.target.value.split(":").map(Number);
+                        const period = h >= 12 ? "PM" : "AM";
+                        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                        const time12 = `${h12}:${m.toString().padStart(2, "0")} ${period}`;
+                        setSelectedTime(time12);
+                      }
+                    }}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                )}
+                {useCustomTime && customTimeInput && (
+                  <span className="text-sm text-gray-600">
+                    → {selectedTime}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Pick a slot or enter a custom future time (e.g. 1:30 PM)
+              </p>
             </div>
           )}
 
