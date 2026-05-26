@@ -130,7 +130,7 @@ Return JSON only:
 }`;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o",
+    model: "llama-3.3-70b-versatile",
     messages: [
       { role: "system", content: "You are a direct, actionable sales coach. Return valid JSON only. No markdown." },
       { role: "user", content: prompt },
@@ -141,7 +141,7 @@ Return JSON only:
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    return NextResponse.json({ error: "No response from GPT" }, { status: 500 });
+    return NextResponse.json({ error: "No response from Groq" }, { status: 500 });
   }
 
   const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
