@@ -42,19 +42,115 @@ export async function POST(req: NextRequest) {
     const normalizedPhone = normalizePhone(phone);
     const phoneDigits = phone.replace(/\D/g, "");
 
-    // Get workspace phone numbers
+    // Try 0: Check our own DB first — the call may already be synced
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const { data: dbCall } = await supabase
+      .from("call_records")
+      .select("id, quo_call_id, duration_seconds, called_at, transcript, quo_summary, recording_url, direction, outcome, from_number, to_number")
+      .or(`from_number.eq.${normalizedPhone},to_number.eq.${normalizedPhone}`)
+      .gte("called_at", todayStart.toISOString())
+      .order("called_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (dbCall) {
+      // Link this call to the contact
+      await supabase
+        .from("call_records")
+        .update({ contact_id: contactId })
+        .eq("id", dbCall.id);
+
+      const { count: callCount } = await supabase
+        .from("call_records")
+        .select("*", { count: "exact", head: true })
+        .eq("contact_id", contactId);
+
+      await supabase
+        .from("contacts")
+        .update({
+          call_count: callCount ?? 1,
+          last_called_at: dbCall.called_at,
+        })
+        .eq("id", contactId);
+
+      return NextResponse.json({
+        status: "found",
+        call: {
+          quoCallId: dbCall.quo_call_id,
+          direction: dbCall.direction,
+          duration: dbCall.duration_seconds,
+          calledAt: dbCall.called_at,
+          outcome: dbCall.outcome,
+          transcript: dbCall.transcript,
+          summary: dbCall.quo_summary,
+          recordingUrl: dbCall.recording_url,
+        },
+      });
+    }
+
+    // Also try DB lookup by digit matching on from/to numbers
+    const { data: dbCalls } = await supabase
+      .from("call_records")
+      .select("id, quo_call_id, duration_seconds, called_at, transcript, quo_summary, recording_url, direction, outcome, from_number, to_number")
+      .gte("called_at", todayStart.toISOString())
+      .order("called_at", { ascending: false })
+      .limit(100);
+
+    const dbMatch = (dbCalls ?? []).find((c) => {
+      const fromDigits = (c.from_number ?? "").replace(/\D/g, "");
+      const toDigits = (c.to_number ?? "").replace(/\D/g, "");
+      return fromDigits.includes(phoneDigits) || toDigits.includes(phoneDigits) ||
+             phoneDigits.includes(fromDigits) || phoneDigits.includes(toDigits);
+    });
+
+    if (dbMatch) {
+      await supabase
+        .from("call_records")
+        .update({ contact_id: contactId })
+        .eq("id", dbMatch.id);
+
+      const { count: callCount } = await supabase
+        .from("call_records")
+        .select("*", { count: "exact", head: true })
+        .eq("contact_id", contactId);
+
+      await supabase
+        .from("contacts")
+        .update({
+          call_count: callCount ?? 1,
+          last_called_at: dbMatch.called_at,
+        })
+        .eq("id", contactId);
+
+      return NextResponse.json({
+        status: "found",
+        call: {
+          quoCallId: dbMatch.quo_call_id,
+          direction: dbMatch.direction,
+          duration: dbMatch.duration_seconds,
+          calledAt: dbMatch.called_at,
+          outcome: dbMatch.outcome,
+          transcript: dbMatch.transcript,
+          summary: dbMatch.quo_summary,
+          recordingUrl: dbMatch.recording_url,
+        },
+      });
+    }
+
+    // If not in DB, search Quo API directly
     const phoneNumbers = await listPhoneNumbers();
     if (phoneNumbers.length === 0) {
       return NextResponse.json({ error: "No phone numbers found in Quo" }, { status: 404 });
     }
 
-    // Look for recent calls to this number (last 4 hours)
     const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
 
     let latestCall = null;
     let matchedPhoneNumber = null;
 
-    // Try 1: Search by participant (exact E.164 match)
+    // Try Quo API: Search by participant (exact E.164 match)
     for (const pn of phoneNumbers) {
       try {
         const result = await listCalls(pn.id, normalizedPhone, {
@@ -74,8 +170,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Try 2: If participant search didn't find it, fetch all recent calls
-    // and match by comparing digits (handles format mismatches)
+    // Quo API fallback: fetch all recent calls and match by digits
     if (!latestCall) {
       for (const pn of phoneNumbers) {
         try {
@@ -102,7 +197,7 @@ export async function POST(req: NextRequest) {
     if (!latestCall || !matchedPhoneNumber) {
       return NextResponse.json({
         status: "not_found",
-        message: "No recent call found in Quo for this number. Make sure the call was made through Quo, then try again.",
+        message: "No recent call found for this number. The auto-sync runs every 10 seconds — wait a moment and try again.",
       });
     }
 
