@@ -259,18 +259,33 @@ export default function CallsPage() {
   const filteredCalls = calls.filter((call) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
+      const qDigits = q.replace(/\D/g, "");
+      const isPhoneSearch = qDigits.length >= 4;
       const contactName = call.contacts
         ? `${call.contacts.first_name} ${call.contacts.last_name}`.toLowerCase()
         : "";
-      const phone = call.contacts?.phone?.toLowerCase() ?? "";
+      const phone = call.contacts?.phone ?? "";
+      const fromNum = call.from_number ?? "";
+      const toNum = call.to_number ?? "";
       const transcript = call.transcript?.toLowerCase() ?? "";
       const summary = (call.gpt_summary ?? call.quo_summary ?? "").toLowerCase();
-      if (
-        !contactName.includes(q) &&
-        !phone.includes(q) &&
-        !transcript.includes(q) &&
-        !summary.includes(q)
-      ) {
+
+      const phoneDigits = phone.replace(/\D/g, "");
+      const fromDigits = fromNum.replace(/\D/g, "");
+      const toDigits = toNum.replace(/\D/g, "");
+
+      const textMatch =
+        contactName.includes(q) ||
+        transcript.includes(q) ||
+        summary.includes(q);
+
+      const phoneMatch = isPhoneSearch && (
+        phoneDigits.includes(qDigits) ||
+        fromDigits.includes(qDigits) ||
+        toDigits.includes(qDigits)
+      );
+
+      if (!textMatch && !phoneMatch) {
         return false;
       }
     }

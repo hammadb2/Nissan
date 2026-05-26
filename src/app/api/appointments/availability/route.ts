@@ -44,7 +44,13 @@ export async function GET(req: NextRequest) {
     })
   );
 
-  // Build available days
+  // All time logic uses Calgary MST — the VA is in the Philippines but
+  // appointments are booked in Calgary time.
+  const nowCalgary = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" })
+  );
+  const todayCalgary = nowCalgary.toLocaleDateString("en-CA");
+
   const days: Array<{
     date: string;
     dayName: string;
@@ -54,14 +60,11 @@ export async function GET(req: NextRequest) {
   }> = [];
 
   for (let i = 0; i < daysAhead; i++) {
-    const date = new Date();
+    const date = new Date(nowCalgary);
     date.setDate(date.getDate() + i);
     const dayOfWeek = date.getDay(); // 0=Sun
-    const dateStr = date.toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
-    const dayName = date.toLocaleDateString("en-US", {
-      weekday: "long",
-      timeZone: "America/Edmonton",
-    });
+    const dateStr = date.toLocaleDateString("en-CA");
+    const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
 
     if (dayOfWeek === 0) continue; // Sunday — closed
 
@@ -71,10 +74,24 @@ export async function GET(req: NextRequest) {
     );
 
     const slotTimes = dayOfWeek >= 1 && dayOfWeek <= 4 ? SLOTS_MON_THU : SLOTS_FRI_SAT;
-    const slots = slotTimes.map((time) => ({
-      time,
-      available: !isBlackedOut && !bookedSlots.has(`${dateStr}|${time}`),
-    }));
+    const isToday = dateStr === todayCalgary;
+
+    const slots = slotTimes
+      .filter((time) => {
+        if (!isToday) return true;
+        const [hourMin, period] = time.split(" ");
+        const [h, m] = hourMin.split(":").map(Number);
+        let hour24 = h;
+        if (period === "PM" && h !== 12) hour24 += 12;
+        if (period === "AM" && h === 12) hour24 = 0;
+        const slotMinutes = hour24 * 60 + m;
+        const nowMinutes = nowCalgary.getHours() * 60 + nowCalgary.getMinutes();
+        return slotMinutes > nowMinutes;
+      })
+      .map((time) => ({
+        time,
+        available: !isBlackedOut && !bookedSlots.has(`${dateStr}|${time}`),
+      }));
 
     days.push({
       date: dateStr,
