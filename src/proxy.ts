@@ -5,7 +5,7 @@ type UserRole = "hammad" | "jea" | "dann";
 
 const ROLE_ROUTES: Record<UserRole, string[]> = {
   hammad: ["/dashboard"],
-  jea: ["/dashboard/call-list", "/dashboard/appointments", "/dashboard/jea"],
+  jea: ["/dashboard/call-list", "/dashboard/appointments", "/dashboard/jea", "/dashboard/coaching", "/dashboard/objections"],
   dann: ["/dashboard/dann"],
 };
 
