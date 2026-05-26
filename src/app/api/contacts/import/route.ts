@@ -22,6 +22,29 @@ interface ImportRow {
   vehicle_model?: string;
 }
 
+const HEADER_VARIANTS = ["first name", "first_name", "firstname"];
+const PHONE_VARIANTS = ["phone", "phone number", "phone_number"];
+
+/**
+ * Scan the sheet for the row that contains recognisable column headers.
+ * Returns the 0-based row index, or 0 if nothing is found (fallback).
+ */
+function detectHeaderRow(sheet: XLSX.WorkSheet): number {
+  const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+  for (let r = range.s.r; r <= Math.min(range.e.r, 10); r++) {
+    const cellValues: string[] = [];
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const cell = sheet[addr];
+      if (cell && cell.v != null) cellValues.push(String(cell.v).toLowerCase().trim());
+    }
+    const hasName = cellValues.some((v) => HEADER_VARIANTS.includes(v));
+    const hasPhone = cellValues.some((v) => PHONE_VARIANTS.includes(v));
+    if (hasName && hasPhone) return r;
+  }
+  return 0;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -36,6 +59,12 @@ export async function POST(req: NextRequest) {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
+
+    const headerRow = detectHeaderRow(sheet);
+    const fullRange = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+    fullRange.s.r = headerRow;
+    sheet["!ref"] = XLSX.utils.encode_range(fullRange);
+
     const rows = XLSX.utils.sheet_to_json<ImportRow>(sheet);
 
     const supabase = getSupabaseAdmin();

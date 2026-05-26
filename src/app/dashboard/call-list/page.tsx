@@ -26,6 +26,14 @@ interface CallListContact extends Contact {
   today_duration: number | null;
 }
 
+interface CallListResponse {
+  contacts: CallListContact[];
+  total: number;
+  calledToday: number;
+  dailyLimit: number;
+  remainingPool: number;
+}
+
 const OUTCOME_OPTIONS = [
   { value: "booked", label: "Appointment Booked", color: "bg-green-100 text-green-800", icon: Calendar },
   { value: "hot", label: "Hot Lead", color: "bg-orange-100 text-orange-800", icon: Flame },
@@ -47,11 +55,15 @@ export default function DailyCallListPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCalled, setShowCalled] = useState(false);
   const [settingOutcome, setSettingOutcome] = useState<string | null>(null);
+  const [dailyLimit, setDailyLimit] = useState(200);
+  const [remainingPool, setRemainingPool] = useState(0);
 
   const fetchList = useCallback(async () => {
     const res = await fetch(`/api/call-list?showCalled=${showCalled}`);
-    const data = await res.json();
+    const data: CallListResponse = await res.json();
     setContacts(data.contacts ?? []);
+    setDailyLimit(data.dailyLimit ?? 200);
+    setRemainingPool(data.remainingPool ?? 0);
     setLoading(false);
   }, [showCalled]);
 
@@ -149,8 +161,8 @@ export default function DailyCallListPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Call List</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {totalCount} contacts to call
-            {calledCount > 0 && ` · ${calledCount} called today`}
+            {calledCount}/{dailyLimit} called today · {totalCount - calledCount} remaining
+            {remainingPool > 0 && ` · ${remainingPool} in pool`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -170,6 +182,30 @@ export default function DailyCallListPage() {
             <RefreshCw size={14} />
             Refresh
           </button>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex justify-between text-sm mb-2">
+          <span className="font-medium text-gray-700">
+            {calledCount} of {dailyLimit} calls completed
+          </span>
+          <span className="text-gray-500">
+            {Math.round((calledCount / dailyLimit) * 100)}%
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2.5">
+          <div
+            className={`h-2.5 rounded-full transition-all ${
+              calledCount >= dailyLimit
+                ? "bg-green-500"
+                : calledCount >= dailyLimit * 0.5
+                  ? "bg-blue-500"
+                  : "bg-amber-500"
+            }`}
+            style={{ width: `${Math.min(100, (calledCount / dailyLimit) * 100)}%` }}
+          />
         </div>
       </div>
 

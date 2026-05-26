@@ -22,6 +22,7 @@ export interface Contact {
   status: "active" | "dnc" | "recent_buyer" | "appointment_booked" | "closed";
   notes: string | null;
   import_batch: string | null;
+  assigned_call_date: string | null;
   created_at: string;
   updated_at: string;
 }
