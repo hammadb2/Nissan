@@ -179,7 +179,7 @@ export default function BossDashboard() {
               description={
                 call.contacts
                   ? `${call.contacts.first_name} ${call.contacts.last_name} — ${call.recent_buyer_flag_reason ?? "flagged as recent buyer"}`
-                  : "Unknown contact flagged"
+                  : `${call.from_number ?? call.to_number ?? "Unknown"} — flagged as recent buyer`
               }
             />
           ))}
@@ -200,7 +200,7 @@ export default function BossDashboard() {
               description={
                 call.contacts
                   ? `${call.contacts.first_name} ${call.contacts.last_name} — ${call.contacts.vehicle_year ?? ""} ${call.contacts.vehicle_make ?? ""} ${call.contacts.vehicle_model ?? ""}`
-                  : "Hot lead incoming"
+                  : `Hot lead: ${call.from_number ?? call.to_number ?? "Unknown"}`
               }
             />
           ))}
@@ -213,7 +213,7 @@ export default function BossDashboard() {
               description={
                 call.contacts
                   ? `${call.contacts.first_name} ${call.contacts.last_name}${call.next_action_at ? ` — ${new Date(call.next_action_at).toLocaleDateString()}` : ""}`
-                  : "New appointment booked"
+                  : `Appointment: ${call.from_number ?? call.to_number ?? "Unknown"}`
               }
             />
           ))}
@@ -248,7 +248,9 @@ export default function BossDashboard() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">
-                        {contact ? `${contact.first_name} ${contact.last_name}` : "Unknown"}
+                        {contact
+                          ? `${contact.first_name} ${contact.last_name}`
+                          : (call.from_number ?? call.to_number ?? "Unknown")}
                       </span>
                       {call.outcome && (
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -272,11 +274,12 @@ export default function BossDashboard() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-400">
-                      {new Date(call.called_at).toLocaleTimeString("en-CA", {
+                      {new Date(call.called_at).toLocaleTimeString("en-US", {
                         timeZone: "America/Edmonton",
                         hour: "numeric",
                         minute: "2-digit",
-                      })}
+                        hour12: true,
+                      })} MST
                     </span>
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </div>

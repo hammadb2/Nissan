@@ -53,6 +53,10 @@ export interface CallRecord {
   transcript_received: boolean;
   summary_received: boolean;
   created_at: string;
+  recording_url: string | null;
+  direction: "incoming" | "outgoing" | null;
+  from_number: string | null;
+  to_number: string | null;
 }
 
 export interface CallRecordWithContact extends CallRecord {
