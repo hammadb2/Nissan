@@ -171,11 +171,21 @@ export interface QuoDialogueEntry {
 }
 
 export interface QuoCallContext {
-  id: string;
-  phoneNumber: { id: string; number: string } | null;
+  id?: string;
+  phoneNumberId?: string | null;
+  conversationId?: string | null;
+  phoneNumber?: { id: string; number: string } | null;
+  phoneNumberType?: string | null;
+  userId?: string;
+  contacts?: { ids: string[]; lookupStatus: string };
   participants: {
-    internal: Array<{ userId: string; displayName: string | null }>;
-    external: Array<{ identifier: string }>;
+    // Legacy app webhook format
+    internal?: Array<{ userId: string; displayName: string | null }>;
+    // Beta API format uses workspace (string[]) and external (string[])
+    workspace?: string[];
+    // External can be either legacy objects or beta strings
+    external: Array<{ identifier: string } | string>;
+    resolution?: string;
   };
 }
 
@@ -189,14 +199,17 @@ export interface QuoCallCompletedPayload {
   data: {
     resource: {
       id: string;
-      phoneNumberId: string;
-      participants: string[];
       direction: "incoming" | "outgoing";
       status: string;
-      duration: number;
+      duration: number | null;
       createdAt: string;
       answeredAt: string | null;
       completedAt: string | null;
+      updatedAt: string | null;
+      hasVoicemail?: boolean;
+      // Legacy format fields (may appear in app-created webhooks)
+      phoneNumberId?: string;
+      participants?: string[];
     };
     context: QuoCallContext;
     links: { quo: string | null };

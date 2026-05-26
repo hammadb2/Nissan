@@ -58,11 +58,13 @@ export default function CallsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    async function init() {
-      await fetchCalls();
-      if (cancelled) return;
+    async function refreshLoop() {
+      while (!cancelled) {
+        await fetchCalls();
+        if (!cancelled) await new Promise((r) => setTimeout(r, 5_000));
+      }
     }
-    init();
+    refreshLoop();
     return () => { cancelled = true; };
   }, [fetchCalls]);
 

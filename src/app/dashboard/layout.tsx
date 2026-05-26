@@ -65,8 +65,8 @@ export default function DashboardLayout({
           await fetch("/api/quo/sync-recent");
         } catch { /* ignore network errors */ }
         syncRef.current = false;
-        // Brief pause to avoid hammering the server, then immediately restart
-        if (!cancelled) await new Promise((r) => setTimeout(r, 1_000));
+        // 2s pause between cycles to respect Quo's 10 req/sec rate limit
+        if (!cancelled) await new Promise((r) => setTimeout(r, 2_000));
       }
     }
 

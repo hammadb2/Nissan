@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   listPhoneNumbers,
-  listRecentCalls,
+  listConversations,
+  listCalls,
   getCallTranscript,
   getCallSummary,
   getCallRecordings,
@@ -26,33 +27,22 @@ function dialogueToTranscript(
 
 /**
  * GET /api/quo/sync-recent
- * Live sync — finds ALL unsynced calls by checking the latest
- * call in the database and fetching everything after it from Quo.
- * Polled every 5 seconds from the dashboard layout.
+ * Live sync — discovers ALL unsynced calls by iterating conversations
+ * (the correct Quo API pattern: conversations → participants → calls).
+ * The previous approach used listRecentCalls without the required
+ * `participants` param, which silently failed.
+ *
+ * Rate limit: Quo allows 10 req/sec. This endpoint is called in a
+ * continuous loop from the dashboard layout with a 2s pause.
  */
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
 
-    // Find the most recent call we already have synced
-    const { data: latestCall } = await supabase
-      .from("call_records")
-      .select("called_at")
-      .not("quo_call_id", "is", null)
-      .order("called_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    // If we have a latest call, look from 5 minutes before it (overlap for safety).
-    // Otherwise look from start of today.
-    let syncAfter: string;
-    if (latestCall?.called_at) {
-      syncAfter = new Date(new Date(latestCall.called_at).getTime() - 5 * 60 * 1000).toISOString();
-    } else {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      syncAfter = todayStart.toISOString();
-    }
+    // Determine how far back to look — start of today at minimum
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const syncAfter = todayStart.toISOString();
 
     const phoneNumbers = await listPhoneNumbers();
     if (phoneNumbers.length === 0) {
@@ -63,175 +53,197 @@ export async function GET() {
     let skipped = 0;
 
     for (const pn of phoneNumbers) {
-      // Fetch all calls since our sync point (paginate to get everything)
-      const recentCalls: QuoApiCall[] = [];
+      // Step 1: List recent conversations to discover participants
+      // Only fetch first 2 pages (100 conversations) to stay within rate limits
+      const participants = new Set<string>();
       try {
         let pageToken: string | undefined;
+        let pages = 0;
         do {
-          const result = await listRecentCalls(pn.id, syncAfter, pageToken);
-          recentCalls.push(...result.data);
+          const result = await listConversations(pn.id, pageToken);
+          for (const conv of result.data) {
+            for (const p of conv.participants) {
+              if (p !== pn.number) {
+                participants.add(p);
+              }
+            }
+          }
           pageToken = result.nextPageToken;
-        } while (pageToken);
+          pages++;
+        } while (pageToken && pages < 2);
       } catch {
         continue;
       }
 
-      for (const call of recentCalls) {
-        const { data: existing } = await supabase
-          .from("call_records")
-          .select("id, transcript_received, summary_received, recording_url")
-          .eq("quo_call_id", call.id)
-          .single();
-
-        const needsUpdate = existing && (
-          !existing.transcript_received ||
-          !existing.summary_received ||
-          !existing.recording_url
-        );
-
-        if (existing && !needsUpdate) {
-          skipped++;
+      // Step 2: For each participant, list calls created after syncAfter
+      for (const participant of participants) {
+        let calls: QuoApiCall[];
+        try {
+          const result = await listCalls(pn.id, participant, {
+            createdAfter: syncAfter,
+          });
+          calls = result.data;
+        } catch {
           continue;
         }
 
-        const externalPhone = call.participants.find((p: string) => p !== pn.number);
-        const customerPhone = externalPhone ? normalizePhone(externalPhone) : null;
-
-        let contactId: string | null = null;
-        if (customerPhone) {
-          const { data: contact } = await supabase
-            .from("contacts")
-            .select("id")
-            .eq("phone", customerPhone)
+        // Step 3: Sync each call
+        for (const call of calls) {
+          const { data: existing } = await supabase
+            .from("call_records")
+            .select("id, transcript_received, summary_received, recording_url")
+            .eq("quo_call_id", call.id)
             .single();
-          contactId = contact?.id ?? null;
-        }
 
-        let transcript: string | null = null;
-        let transcriptReceived = false;
-        try {
-          const td = await getCallTranscript(call.id);
-          if (td.status === "completed" && td.dialogue) {
-            transcript = dialogueToTranscript(td.dialogue);
-            transcriptReceived = true;
-          }
-        } catch { /* not ready yet */ }
+          const needsUpdate = existing && (
+            !existing.transcript_received ||
+            !existing.summary_received ||
+            !existing.recording_url
+          );
 
-        let quoSummary: string | null = null;
-        let summaryReceived = false;
-        try {
-          const sd = await getCallSummary(call.id);
-          if (sd.status === "completed") {
-            const parts = [...(sd.summary ?? []), ...(sd.nextSteps ?? [])];
-            quoSummary = parts.join("\n") || null;
-            summaryReceived = !!quoSummary;
-          }
-        } catch { /* not ready yet */ }
-
-        let recordingUrl: string | null = null;
-        try {
-          const recordings = await getCallRecordings(call.id);
-          const completed = recordings.find((r) => r.status === "completed" && r.url);
-          recordingUrl = completed?.url ?? null;
-        } catch { /* not available */ }
-
-        const fromNumber = call.direction === "outgoing" ? pn.number : (externalPhone ?? null);
-        const toNumber = call.direction === "outgoing" ? (externalPhone ?? null) : pn.number;
-
-        if (existing) {
-          const updateFields: Record<string, unknown> = {};
-          if (transcript && !existing.transcript_received) {
-            updateFields.transcript = transcript;
-            updateFields.transcript_received = true;
-          }
-          if (quoSummary && !existing.summary_received) {
-            updateFields.quo_summary = quoSummary;
-            updateFields.summary_received = true;
-          }
-          if (recordingUrl && !existing.recording_url) {
-            updateFields.recording_url = recordingUrl;
-          }
-          if (contactId) updateFields.contact_id = contactId;
-          if (fromNumber) updateFields.from_number = fromNumber;
-          if (toNumber) updateFields.to_number = toNumber;
-          if (call.direction) updateFields.direction = call.direction;
-
-          if (Object.keys(updateFields).length > 0) {
-            await supabase
-              .from("call_records")
-              .update(updateFields)
-              .eq("id", existing.id);
-            synced++;
-          }
-        } else {
-          // Check for a manually-marked record that matches this call's phone
-          const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, "") : null;
-          let manualRecord = null;
-          if (phoneDigits && contactId) {
-            const { data: manualRows } = await supabase
-              .from("call_records")
-              .select("id, manual_notes")
-              .eq("contact_id", contactId)
-              .eq("manually_marked", true)
-              .is("quo_call_id", null)
-              .order("called_at", { ascending: false })
-              .limit(1);
-            manualRecord = manualRows?.[0] ?? null;
+          if (existing && !needsUpdate) {
+            skipped++;
+            continue;
           }
 
-          if (manualRecord) {
-            // Merge Quo data into the manually-marked record
-            await supabase
-              .from("call_records")
-              .update({
-                quo_call_id: call.id,
-                duration_seconds: call.duration ?? null,
-                called_at: call.createdAt,
-                transcript,
-                quo_summary: quoSummary,
-                transcript_received: transcriptReceived,
-                summary_received: summaryReceived,
-                recording_url: recordingUrl,
-                from_number: fromNumber,
-                to_number: toNumber,
-                direction: call.direction ?? null,
-                manually_marked: false,
-              })
-              .eq("id", manualRecord.id);
-          } else {
-            await supabase.from("call_records").upsert(
-              {
-                quo_call_id: call.id,
-                contact_id: contactId,
-                duration_seconds: call.duration ?? null,
-                called_at: call.createdAt,
-                transcript,
-                quo_summary: quoSummary,
-                transcript_received: transcriptReceived,
-                summary_received: summaryReceived,
-                recording_url: recordingUrl,
-                from_number: fromNumber,
-                to_number: toNumber,
-                direction: call.direction ?? null,
-              },
-              { onConflict: "quo_call_id" }
-            );
-          }
-          synced++;
+          const externalPhone = call.participants.find((p: string) => p !== pn.number);
+          const customerPhone = externalPhone ? normalizePhone(externalPhone) : null;
 
-          if (contactId) {
-            const { count: contactCallCount } = await supabase
-              .from("call_records")
-              .select("*", { count: "exact", head: true })
-              .eq("contact_id", contactId);
-
-            await supabase
+          let contactId: string | null = null;
+          if (customerPhone) {
+            const { data: contact } = await supabase
               .from("contacts")
-              .update({
-                call_count: contactCallCount ?? 1,
-                last_called_at: call.createdAt,
-              })
-              .eq("id", contactId);
+              .select("id")
+              .eq("phone", customerPhone)
+              .single();
+            contactId = contact?.id ?? null;
+          }
+
+          let transcript: string | null = null;
+          let transcriptReceived = false;
+          try {
+            const td = await getCallTranscript(call.id);
+            if (td.status === "completed" && td.dialogue) {
+              transcript = dialogueToTranscript(td.dialogue);
+              transcriptReceived = true;
+            }
+          } catch { /* not ready yet */ }
+
+          let quoSummary: string | null = null;
+          let summaryReceived = false;
+          try {
+            const sd = await getCallSummary(call.id);
+            if (sd.status === "completed") {
+              const parts = [...(sd.summary ?? []), ...(sd.nextSteps ?? [])];
+              quoSummary = parts.join("\n") || null;
+              summaryReceived = !!quoSummary;
+            }
+          } catch { /* not ready yet */ }
+
+          let recordingUrl: string | null = null;
+          try {
+            const recordings = await getCallRecordings(call.id);
+            const completed = recordings.find((r) => r.status === "completed" && r.url);
+            recordingUrl = completed?.url ?? null;
+          } catch { /* not available */ }
+
+          const fromNumber = call.direction === "outgoing" ? pn.number : (externalPhone ?? null);
+          const toNumber = call.direction === "outgoing" ? (externalPhone ?? null) : pn.number;
+
+          if (existing) {
+            const updateFields: Record<string, unknown> = {};
+            if (transcript && !existing.transcript_received) {
+              updateFields.transcript = transcript;
+              updateFields.transcript_received = true;
+            }
+            if (quoSummary && !existing.summary_received) {
+              updateFields.quo_summary = quoSummary;
+              updateFields.summary_received = true;
+            }
+            if (recordingUrl && !existing.recording_url) {
+              updateFields.recording_url = recordingUrl;
+            }
+            if (contactId) updateFields.contact_id = contactId;
+            if (fromNumber) updateFields.from_number = fromNumber;
+            if (toNumber) updateFields.to_number = toNumber;
+            if (call.direction) updateFields.direction = call.direction;
+
+            if (Object.keys(updateFields).length > 0) {
+              await supabase
+                .from("call_records")
+                .update(updateFields)
+                .eq("id", existing.id);
+              synced++;
+            }
+          } else {
+            // Check for a manually-marked record that matches this call's phone
+            const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, "") : null;
+            let manualRecord = null;
+            if (phoneDigits && contactId) {
+              const { data: manualRows } = await supabase
+                .from("call_records")
+                .select("id, manual_notes")
+                .eq("contact_id", contactId)
+                .eq("manually_marked", true)
+                .is("quo_call_id", null)
+                .order("called_at", { ascending: false })
+                .limit(1);
+              manualRecord = manualRows?.[0] ?? null;
+            }
+
+            if (manualRecord) {
+              await supabase
+                .from("call_records")
+                .update({
+                  quo_call_id: call.id,
+                  duration_seconds: call.duration ?? null,
+                  called_at: call.createdAt,
+                  transcript,
+                  quo_summary: quoSummary,
+                  transcript_received: transcriptReceived,
+                  summary_received: summaryReceived,
+                  recording_url: recordingUrl,
+                  from_number: fromNumber,
+                  to_number: toNumber,
+                  direction: call.direction ?? null,
+                  manually_marked: false,
+                })
+                .eq("id", manualRecord.id);
+            } else {
+              await supabase.from("call_records").upsert(
+                {
+                  quo_call_id: call.id,
+                  contact_id: contactId,
+                  duration_seconds: call.duration ?? null,
+                  called_at: call.createdAt,
+                  transcript,
+                  quo_summary: quoSummary,
+                  transcript_received: transcriptReceived,
+                  summary_received: summaryReceived,
+                  recording_url: recordingUrl,
+                  from_number: fromNumber,
+                  to_number: toNumber,
+                  direction: call.direction ?? null,
+                },
+                { onConflict: "quo_call_id" }
+              );
+            }
+            synced++;
+
+            if (contactId) {
+              const { count: contactCallCount } = await supabase
+                .from("call_records")
+                .select("*", { count: "exact", head: true })
+                .eq("contact_id", contactId);
+
+              await supabase
+                .from("contacts")
+                .update({
+                  call_count: contactCallCount ?? 1,
+                  last_called_at: call.createdAt,
+                })
+                .eq("id", contactId);
+            }
           }
         }
       }
@@ -239,12 +251,12 @@ export async function GET() {
 
     // --- Daily stats: reconcile today's call count ---
     const todayStr = new Date().toISOString().split("T")[0];
-    const todayStart = `${todayStr}T00:00:00.000Z`;
+    const todayStartISO = `${todayStr}T00:00:00.000Z`;
     const todayEnd = `${todayStr}T23:59:59.999Z`;
     const { count: dbCallCount } = await supabase
       .from("call_records")
       .select("*", { count: "exact", head: true })
-      .gte("called_at", todayStart)
+      .gte("called_at", todayStartISO)
       .lte("called_at", todayEnd);
 
     const actualCallCount = dbCallCount ?? 0;
@@ -320,7 +332,6 @@ export async function GET() {
             updated_at: new Date().toISOString(),
           };
 
-          // Only update next_action if current isn't "callback" or GPT also says callback
           if (
             currentContact?.next_action !== "callback" ||
             analysis.next_action === "callback" ||
