@@ -12,6 +12,8 @@ import {
   XCircle,
   Ban,
   Trash2,
+  Edit3,
+  X,
 } from "lucide-react";
 
 interface Appointment {
@@ -507,6 +509,11 @@ function AppointmentCard({
   appointment: Appointment;
   onUpdate: () => void;
 }) {
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
   const scheduled = new Date(appointment.scheduled_at);
   const dateStr = scheduled.toLocaleDateString("en-CA", {
     weekday: "short",
@@ -522,22 +529,58 @@ function AppointmentCard({
   });
 
   async function markShowedUp(showed: boolean) {
+    setActionLoading(true);
     await fetch(`/api/appointments/${appointment.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ showed_up: showed }),
     });
+    setActionLoading(false);
     onUpdate();
   }
 
   async function markClosed() {
+    setActionLoading(true);
     await fetch(`/api/appointments/${appointment.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ closed: true }),
     });
+    setActionLoading(false);
     onUpdate();
   }
+
+  async function handleCancel() {
+    if (!confirm("Cancel this appointment? The customer will be notified by text.")) return;
+    setActionLoading(true);
+    await fetch(`/api/appointments/${appointment.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancelled: true }),
+    });
+    setActionLoading(false);
+    onUpdate();
+  }
+
+  async function handleReschedule() {
+    if (!rescheduleDate || !rescheduleTime) return;
+    setActionLoading(true);
+    await fetch(`/api/appointments/${appointment.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reschedule_date: rescheduleDate,
+        reschedule_time: rescheduleTime,
+      }),
+    });
+    setActionLoading(false);
+    setRescheduleOpen(false);
+    setRescheduleDate("");
+    setRescheduleTime("");
+    onUpdate();
+  }
+
+  const isFinished = appointment.closed || appointment.showed_up !== null;
 
   return (
     <div
@@ -551,7 +594,7 @@ function AppointmentCard({
     >
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold">{appointment.customer_name}</span>
             {appointment.confirmed && (
               <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-medium">
@@ -591,19 +634,41 @@ function AppointmentCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {appointment.showed_up === null && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {!isFinished && (
+            <>
+              <button
+                onClick={() => setRescheduleOpen(!rescheduleOpen)}
+                disabled={actionLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 disabled:opacity-50"
+              >
+                <Edit3 size={12} />
+                Reschedule
+              </button>
+              <button
+                onClick={handleCancel}
+                disabled={actionLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100 disabled:opacity-50"
+              >
+                <X size={12} />
+                Cancel
+              </button>
+            </>
+          )}
+          {appointment.showed_up === null && !appointment.closed && (
             <>
               <button
                 onClick={() => markShowedUp(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100"
+                disabled={actionLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 disabled:opacity-50"
               >
                 <CheckCircle size={12} />
                 Showed Up
               </button>
               <button
                 onClick={() => markShowedUp(false)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100"
+                disabled={actionLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100 disabled:opacity-50"
               >
                 <XCircle size={12} />
                 No Show
@@ -613,7 +678,8 @@ function AppointmentCard({
           {appointment.showed_up && !appointment.closed && (
             <button
               onClick={markClosed}
-              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+              disabled={actionLoading}
+              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50"
             >
               <CheckCircle size={12} />
               Mark Closed
@@ -621,6 +687,41 @@ function AppointmentCard({
           )}
         </div>
       </div>
+
+      {rescheduleOpen && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <p className="text-sm font-medium text-gray-700 mb-2">Reschedule to:</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="date"
+              value={rescheduleDate}
+              onChange={(e) => setRescheduleDate(e.target.value)}
+              min={new Date().toISOString().split("T")[0]}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm"
+            />
+            <input
+              type="time"
+              value={rescheduleTime}
+              onChange={(e) => setRescheduleTime(e.target.value)}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm"
+            />
+            <button
+              onClick={handleReschedule}
+              disabled={actionLoading || !rescheduleDate || !rescheduleTime}
+              className="flex items-center gap-1 px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Confirm & Text Customer
+            </button>
+            <button
+              onClick={() => setRescheduleOpen(false)}
+              className="px-3 py-1.5 text-gray-500 hover:text-gray-700 text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
