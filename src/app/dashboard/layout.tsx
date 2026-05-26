@@ -8,12 +8,14 @@ import {
   ShoppingBag,
   Users,
   Upload,
+  PhoneIncoming,
 } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard/boss", label: "Boss View", icon: LayoutDashboard },
   { href: "/dashboard/jea", label: "Jea", icon: Phone },
   { href: "/dashboard/dann", label: "Dann", icon: ShoppingBag },
+  { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users },
   { href: "/dashboard/import", label: "Import", icon: Upload },
 ];

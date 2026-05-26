@@ -214,6 +214,76 @@ export interface QuoSummaryPayload {
   };
 }
 
+// Quo REST API types (for sync)
+export interface QuoApiCall {
+  id: string;
+  phoneNumberId: string;
+  participants: string[];
+  direction: "incoming" | "outgoing";
+  status: string;
+  duration: number;
+  createdAt: string;
+  answeredAt: string | null;
+  completedAt: string | null;
+  userId: string | null;
+  answeredBy: string | null;
+  initiatedBy: string | null;
+}
+
+export interface QuoApiTranscript {
+  callId: string;
+  createdAt: string;
+  duration: number;
+  status: "absent" | "in-progress" | "completed" | "failed";
+  dialogue: Array<{
+    content: string;
+    start: number;
+    end: number;
+    identifier: string | null;
+    userId: string | null;
+  }> | null;
+}
+
+export interface QuoApiSummary {
+  callId: string;
+  status: "absent" | "in-progress" | "completed" | "failed";
+  summary: string[] | null;
+  nextSteps: string[] | null;
+}
+
+export interface QuoApiRecording {
+  id: string;
+  duration: number | null;
+  startTime: string | null;
+  status: string | null;
+  type: string | null;
+  url: string | null;
+}
+
+export interface QuoApiPhoneNumber {
+  id: string;
+  number: string;
+  name: string | null;
+  users: Array<{ userId: string; displayName: string | null }>;
+}
+
+export interface QuoApiConversation {
+  id: string;
+  phoneNumberId: string;
+  participants: string[];
+  lastActivityAt: string;
+}
+
+export interface QuoSyncProgress {
+  status: "idle" | "syncing" | "complete" | "error";
+  totalConversations: number;
+  processedConversations: number;
+  totalCalls: number;
+  newCalls: number;
+  updatedCalls: number;
+  errors: string[];
+}
+
 // Dashboard stats
 export interface JeaStats {
   calls_made: number;
