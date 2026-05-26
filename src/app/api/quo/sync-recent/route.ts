@@ -140,23 +140,59 @@ export async function GET() {
             synced++;
           }
         } else {
-          await supabase.from("call_records").upsert(
-            {
-              quo_call_id: call.id,
-              contact_id: contactId,
-              duration_seconds: call.duration ?? null,
-              called_at: call.createdAt,
-              transcript,
-              quo_summary: quoSummary,
-              transcript_received: transcriptReceived,
-              summary_received: summaryReceived,
-              recording_url: recordingUrl,
-              from_number: fromNumber,
-              to_number: toNumber,
-              direction: call.direction ?? null,
-            },
-            { onConflict: "quo_call_id" }
-          );
+          // Check for a manually-marked record that matches this call's phone
+          const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, "") : null;
+          let manualRecord = null;
+          if (phoneDigits && contactId) {
+            const { data: manualRows } = await supabase
+              .from("call_records")
+              .select("id, manual_notes")
+              .eq("contact_id", contactId)
+              .eq("manually_marked", true)
+              .is("quo_call_id", null)
+              .order("called_at", { ascending: false })
+              .limit(1);
+            manualRecord = manualRows?.[0] ?? null;
+          }
+
+          if (manualRecord) {
+            // Merge Quo data into the manually-marked record
+            await supabase
+              .from("call_records")
+              .update({
+                quo_call_id: call.id,
+                duration_seconds: call.duration ?? null,
+                called_at: call.createdAt,
+                transcript,
+                quo_summary: quoSummary,
+                transcript_received: transcriptReceived,
+                summary_received: summaryReceived,
+                recording_url: recordingUrl,
+                from_number: fromNumber,
+                to_number: toNumber,
+                direction: call.direction ?? null,
+                manually_marked: false,
+              })
+              .eq("id", manualRecord.id);
+          } else {
+            await supabase.from("call_records").upsert(
+              {
+                quo_call_id: call.id,
+                contact_id: contactId,
+                duration_seconds: call.duration ?? null,
+                called_at: call.createdAt,
+                transcript,
+                quo_summary: quoSummary,
+                transcript_received: transcriptReceived,
+                summary_received: summaryReceived,
+                recording_url: recordingUrl,
+                from_number: fromNumber,
+                to_number: toNumber,
+                direction: call.direction ?? null,
+              },
+              { onConflict: "quo_call_id" }
+            );
+          }
           synced++;
 
           if (contactId) {

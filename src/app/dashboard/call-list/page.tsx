@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  Edit3,
 } from "lucide-react";
 import type { Contact } from "@/lib/types";
 
@@ -57,6 +58,10 @@ export default function DailyCallListPage() {
   const [settingOutcome, setSettingOutcome] = useState<string | null>(null);
   const [dailyLimit, setDailyLimit] = useState(200);
   const [remainingPool, setRemainingPool] = useState(0);
+  const [markingCallId, setMarkingCallId] = useState<string | null>(null);
+  const [markNotes, setMarkNotes] = useState("");
+  const [markOutcome, setMarkOutcome] = useState<string | null>(null);
+  const [savingMark, setSavingMark] = useState(false);
 
   const fetchList = useCallback(async () => {
     const res = await fetch(`/api/call-list?showCalled=${showCalled}`);
@@ -95,7 +100,6 @@ export default function DailyCallListPage() {
       const data = await res.json();
 
       if (data.status === "found") {
-        // Update the contact in the list with the call result
         setContacts((prev) =>
           prev.map((c) =>
             c.id === contact.id
@@ -112,12 +116,57 @@ export default function DailyCallListPage() {
         );
         setExpandedId(contact.id);
       } else {
-        alert("No recent call found in Quo for this number. Make sure you've completed the call, then try again.");
+        // Show mark-as-called form instead of alert
+        setMarkingCallId(contact.id);
+        setMarkNotes("");
+        setMarkOutcome(null);
+        setExpandedId(contact.id);
       }
     } catch {
-      alert("Failed to check call. Please try again.");
+      setMarkingCallId(contact.id);
+      setMarkNotes("");
+      setMarkOutcome(null);
+      setExpandedId(contact.id);
     } finally {
       setCheckingCall(null);
+    }
+  }
+
+  async function markAsCalled(contact: CallListContact) {
+    setSavingMark(true);
+    try {
+      const res = await fetch("/api/call-list/mark-called", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: contact.id,
+          phone: contact.phone,
+          notes: markNotes || null,
+          outcome: markOutcome || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.status === "marked") {
+        setContacts((prev) =>
+          prev.map((c) =>
+            c.id === contact.id
+              ? {
+                  ...c,
+                  called_today: true,
+                  today_outcome: markOutcome,
+                  today_summary: markNotes || null,
+                  today_called_at: new Date().toISOString(),
+                  today_duration: null,
+                }
+              : c
+          )
+        );
+        setMarkingCallId(null);
+      }
+    } catch {
+      alert("Failed to save. Please try again.");
+    } finally {
+      setSavingMark(false);
     }
   }
 
@@ -211,7 +260,7 @@ export default function DailyCallListPage() {
 
       {/* Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-        <strong>How it works:</strong> Copy a number → paste into Quo → make the call → click &quot;Check Call&quot; to auto-fetch the result from Quo.
+        <strong>How it works:</strong> Copy a number → paste into Quo → make the call → click &quot;Check Call&quot; to auto-fetch the result. If no record is found, you can mark the call manually and it will sync when Quo catches up.
       </div>
 
       {/* Call List */}
@@ -351,6 +400,68 @@ export default function DailyCallListPage() {
               {/* Expanded Details */}
               {isExpanded && (
                 <div className="border-t border-gray-100 p-4 space-y-4">
+                  {/* Mark as Called form — shown when Check Call didn't find a record */}
+                  {markingCallId === contact.id && !contact.called_today && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-amber-800 font-medium text-sm">
+                        <Edit3 size={14} />
+                        No record found in Quo — mark this call manually
+                      </div>
+                      <textarea
+                        value={markNotes}
+                        onChange={(e) => setMarkNotes(e.target.value)}
+                        placeholder="Add notes about the call (optional)..."
+                        className="w-full border border-amber-300 rounded-lg p-2 text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-2">Outcome</p>
+                        <div className="flex flex-wrap gap-2">
+                          {OUTCOME_OPTIONS.map((opt) => {
+                            const Icon = opt.icon;
+                            const isActive = markOutcome === opt.value;
+                            return (
+                              <button
+                                key={opt.value}
+                                onClick={() => setMarkOutcome(isActive ? null : opt.value)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                  isActive
+                                    ? opt.color + " ring-2 ring-offset-1 ring-gray-400"
+                                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                }`}
+                              >
+                                <Icon size={12} />
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => markAsCalled(contact)}
+                          disabled={savingMark}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {savingMark ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <CheckCircle size={14} />
+                          )}
+                          Mark as Called
+                        </button>
+                        <button
+                          onClick={() => setMarkingCallId(null)}
+                          className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        When Quo syncs the call later, it will automatically merge with this record.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Call Result */}
                   {contact.called_today && (
                     <div className="bg-gray-50 rounded-lg p-3 space-y-2">
