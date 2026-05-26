@@ -61,9 +61,8 @@ export async function POST(req: NextRequest) {
     .map((e) => `"${e.objection}" → ${e.say_this}`)
     .join("\n");
 
-  // Use GPT to generate a handler
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o",
+    model: "meta/llama-4-maverick-17b-128e-instruct",
     messages: [
       {
         role: "system",
