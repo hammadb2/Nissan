@@ -33,7 +33,7 @@ function dialogueToTranscript(
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
 
     const phoneNumbers = await listPhoneNumbers();
     if (phoneNumbers.length === 0) {
@@ -46,7 +46,7 @@ export async function GET() {
     for (const pn of phoneNumbers) {
       let recentCalls: QuoApiCall[];
       try {
-        const result = await listRecentCalls(pn.id, twoMinAgo);
+        const result = await listRecentCalls(pn.id, fifteenMinAgo);
         recentCalls = result.data;
       } catch {
         continue;
