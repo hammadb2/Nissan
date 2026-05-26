@@ -26,14 +26,33 @@ function dialogueToTranscript(
 
 /**
  * GET /api/quo/sync-recent
- * Lightweight sync — fetches calls from the last 2 minutes and
- * runs GPT analysis on any unprocessed calls with transcripts.
- * Polled every 10 seconds from the dashboard layout.
+ * Live sync — finds ALL unsynced calls by checking the latest
+ * call in the database and fetching everything after it from Quo.
+ * Polled every 5 seconds from the dashboard layout.
  */
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
-    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+    // Find the most recent call we already have synced
+    const { data: latestCall } = await supabase
+      .from("call_records")
+      .select("called_at")
+      .not("quo_call_id", "is", null)
+      .order("called_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    // If we have a latest call, look from 5 minutes before it (overlap for safety).
+    // Otherwise look from start of today.
+    let syncAfter: string;
+    if (latestCall?.called_at) {
+      syncAfter = new Date(new Date(latestCall.called_at).getTime() - 5 * 60 * 1000).toISOString();
+    } else {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      syncAfter = todayStart.toISOString();
+    }
 
     const phoneNumbers = await listPhoneNumbers();
     if (phoneNumbers.length === 0) {
@@ -44,10 +63,15 @@ export async function GET() {
     let skipped = 0;
 
     for (const pn of phoneNumbers) {
-      let recentCalls: QuoApiCall[];
+      // Fetch all calls since our sync point (paginate to get everything)
+      const recentCalls: QuoApiCall[] = [];
       try {
-        const result = await listRecentCalls(pn.id, fifteenMinAgo);
-        recentCalls = result.data;
+        let pageToken: string | undefined;
+        do {
+          const result = await listRecentCalls(pn.id, syncAfter, pageToken);
+          recentCalls.push(...result.data);
+          pageToken = result.nextPageToken;
+        } while (pageToken);
       } catch {
         continue;
       }
