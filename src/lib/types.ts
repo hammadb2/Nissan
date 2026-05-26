@@ -178,7 +178,26 @@ export interface QuoCallContext {
   };
 }
 
-export type QuoWebhookPayload = QuoTranscriptPayload | QuoSummaryPayload;
+export type QuoWebhookPayload = QuoTranscriptPayload | QuoSummaryPayload | QuoMessagePayload;
+
+export interface QuoMessagePayload {
+  id: string;
+  apiVersion: string;
+  createdAt: string;
+  type: "message.received";
+  data: {
+    resource: {
+      id: string;
+      body: string;
+      from: string;
+      to: string;
+      createdAt: string;
+      direction: "incoming" | "outgoing";
+    };
+    context: QuoCallContext;
+    links: { quo: string | null };
+  };
+}
 
 export interface QuoTranscriptPayload {
   id: string;

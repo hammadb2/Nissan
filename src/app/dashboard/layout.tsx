@@ -10,6 +10,7 @@ import {
   Upload,
   PhoneIncoming,
   ClipboardList,
+  Calendar,
 } from "lucide-react";
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/dashboard/jea", label: "Jea", icon: Phone },
   { href: "/dashboard/dann", label: "Dann", icon: ShoppingBag },
   { href: "/dashboard/call-list", label: "Call List", icon: ClipboardList },
+  { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
   { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users },
   { href: "/dashboard/import", label: "Import", icon: Upload },
