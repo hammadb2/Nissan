@@ -54,13 +54,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Filter out DNC contacts
+  // Filter contacts for the call list
   const now = new Date();
   const filtered = (contacts ?? []).filter((c) => {
     if (c.do_not_call_until && new Date(c.do_not_call_until) > now) return false;
     if (c.status === "dnc" || c.status === "recent_buyer") return false;
     const wasCalled = calledMap.has(c.id);
     if (!showCalled && wasCalled) return false;
+
+    // Only show contacts that have never been called, OR have a callback scheduled
+    if (c.call_count > 0 && c.next_action !== "callback") return false;
+
     return true;
   });
 
