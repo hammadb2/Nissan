@@ -5,21 +5,35 @@ import * as XLSX from "xlsx";
 
 export const dynamic = "force-dynamic";
 
-interface ImportRow {
-  "First Name"?: string;
-  "Last Name"?: string;
-  Phone?: string;
-  Email?: string;
-  Year?: number | string;
-  Make?: string;
-  Model?: string;
-  first_name?: string;
-  last_name?: string;
-  phone?: string;
-  email?: string;
-  vehicle_year?: number | string;
-  vehicle_make?: string;
-  vehicle_model?: string;
+const HEADER_VARIANTS: Record<string, string> = {
+  "first name": "firstName",
+  "first_name": "firstName",
+  "firstname": "firstName",
+  "last name": "lastName",
+  "last_name": "lastName",
+  "lastname": "lastName",
+  "phone": "phone",
+  "phone number": "phone",
+  "phone_number": "phone",
+  "email": "email",
+  "email address": "email",
+  "year": "year",
+  "vehicle_year": "year",
+  "make": "make",
+  "vehicle_make": "make",
+  "model": "model",
+  "vehicle_model": "model",
+};
+
+function findHeaderRow(rawRows: unknown[][]): number {
+  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+    const row = rawRows[i];
+    if (!Array.isArray(row)) continue;
+    const cells = row.map((c) => String(c ?? "").trim().toLowerCase());
+    const matches = cells.filter((c) => HEADER_VARIANTS[c]);
+    if (matches.length >= 3) return i;
+  }
+  return 0;
 }
 
 export async function POST(req: NextRequest) {
@@ -36,7 +50,32 @@ export async function POST(req: NextRequest) {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<ImportRow>(sheet);
+
+    // Read as raw arrays to find the header row
+    const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+    const headerRowIdx = findHeaderRow(rawRows);
+    const headerRow = (rawRows[headerRowIdx] ?? []).map((c) =>
+      String(c ?? "").trim().toLowerCase()
+    );
+
+    // Build column index map
+    const colMap: Record<string, number> = {};
+    for (let i = 0; i < headerRow.length; i++) {
+      const mapped = HEADER_VARIANTS[headerRow[i]];
+      if (mapped && !(mapped in colMap)) {
+        colMap[mapped] = i;
+      }
+    }
+
+    if (!("phone" in colMap)) {
+      return NextResponse.json(
+        { error: `Could not find a "Phone" column. Found headers: ${headerRow.filter(Boolean).join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    // Data rows start after header
+    const dataRows = rawRows.slice(headerRowIdx + 1);
 
     const supabase = getSupabaseAdmin();
     let imported = 0;
@@ -44,32 +83,42 @@ export async function POST(req: NextRequest) {
     let errors = 0;
     const batchId = batchName ?? new Date().toISOString().split("T")[0];
 
+    function getCell(row: unknown[], field: string): string | undefined {
+      const idx = colMap[field];
+      if (idx === undefined) return undefined;
+      const val = row[idx];
+      if (val === null || val === undefined || val === "") return undefined;
+      return String(val).trim();
+    }
+
     const BATCH_SIZE = 100;
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      const batch = rows.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
+      const batch = dataRows.slice(i, i + BATCH_SIZE);
       const contacts = [];
 
       for (const row of batch) {
-        const firstName = row["First Name"] ?? row.first_name;
-        const lastName = row["Last Name"] ?? row.last_name;
-        const rawPhone = row.Phone ?? row.phone;
+        if (!Array.isArray(row)) continue;
 
-        if (!firstName || !lastName || !rawPhone) {
+        const firstName = getCell(row, "firstName");
+        const lastName = getCell(row, "lastName");
+        const rawPhone = getCell(row, "phone");
+
+        if (!rawPhone) {
           errors++;
           continue;
         }
 
-        const phone = normalizePhone(String(rawPhone));
-        const yearVal = row.Year ?? row.vehicle_year;
+        const phone = normalizePhone(rawPhone);
+        const yearVal = getCell(row, "year");
 
         contacts.push({
-          first_name: String(firstName).trim(),
-          last_name: String(lastName).trim(),
+          first_name: firstName ?? "",
+          last_name: lastName ?? "",
           phone,
-          email: (row.Email ?? row.email) ? String(row.Email ?? row.email).trim() : null,
-          vehicle_year: yearVal ? parseInt(String(yearVal)) : null,
-          vehicle_make: (row.Make ?? row.vehicle_make) ? String(row.Make ?? row.vehicle_make).trim() : null,
-          vehicle_model: (row.Model ?? row.vehicle_model) ? String(row.Model ?? row.vehicle_model).trim() : null,
+          email: getCell(row, "email") ?? null,
+          vehicle_year: yearVal ? parseInt(yearVal) : null,
+          vehicle_make: getCell(row, "make") ?? null,
+          vehicle_model: getCell(row, "model") ?? null,
           import_batch: batchId,
         });
       }
@@ -82,14 +131,19 @@ export async function POST(req: NextRequest) {
           .single();
 
         if (existing) {
+          const updates: Record<string, unknown> = {
+            updated_at: new Date().toISOString(),
+          };
+          if (contact.first_name) updates.first_name = contact.first_name;
+          if (contact.last_name) updates.last_name = contact.last_name;
+          if (contact.vehicle_year) updates.vehicle_year = contact.vehicle_year;
+          if (contact.vehicle_make) updates.vehicle_make = contact.vehicle_make;
+          if (contact.vehicle_model) updates.vehicle_model = contact.vehicle_model;
+          if (contact.email) updates.email = contact.email;
+
           await supabase
             .from("contacts")
-            .update({
-              vehicle_year: contact.vehicle_year,
-              vehicle_make: contact.vehicle_make,
-              vehicle_model: contact.vehicle_model,
-              updated_at: new Date().toISOString(),
-            })
+            .update(updates)
             .eq("id", existing.id);
           duplicates++;
         } else {
@@ -109,7 +163,7 @@ export async function POST(req: NextRequest) {
       imported,
       duplicates,
       errors,
-      total: rows.length,
+      total: dataRows.length,
       batch: batchId,
     });
   } catch (error) {
