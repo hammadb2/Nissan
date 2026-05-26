@@ -13,6 +13,8 @@ import {
   ClipboardList,
   Calendar,
   LogOut,
+  BookOpen,
+  MessageCircle,
 } from "lucide-react";
 
 type UserRole = "hammad" | "jea" | "dann";
@@ -23,6 +25,8 @@ const allNavItems = [
   { href: "/dashboard/dann", label: "Dann", icon: ShoppingBag, roles: ["hammad", "dann"] },
   { href: "/dashboard/call-list", label: "Call List", icon: ClipboardList, roles: ["hammad", "jea"] },
   { href: "/dashboard/appointments", label: "Appts", icon: Calendar, roles: ["hammad", "jea"] },
+  { href: "/dashboard/coaching", label: "Coaching", icon: BookOpen, roles: ["hammad", "jea"] },
+  { href: "/dashboard/objections", label: "Objections", icon: MessageCircle, roles: ["hammad", "jea"] },
   { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming, roles: ["hammad"] },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users, roles: ["hammad"] },
   { href: "/dashboard/import", label: "Import", icon: Upload, roles: ["hammad"] },
