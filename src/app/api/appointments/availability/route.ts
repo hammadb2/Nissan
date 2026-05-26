@@ -71,10 +71,29 @@ export async function GET(req: NextRequest) {
     );
 
     const slotTimes = dayOfWeek >= 1 && dayOfWeek <= 4 ? SLOTS_MON_THU : SLOTS_FRI_SAT;
-    const slots = slotTimes.map((time) => ({
-      time,
-      available: !isBlackedOut && !bookedSlots.has(`${dateStr}|${time}`),
-    }));
+
+    // For today, filter out slots that have already passed
+    const isToday = i === 0;
+    const nowCalgary = isToday
+      ? new Date(new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" }))
+      : null;
+
+    const slots = slotTimes
+      .filter((time) => {
+        if (!isToday || !nowCalgary) return true;
+        const [hourMin, period] = time.split(" ");
+        const [h, m] = hourMin.split(":").map(Number);
+        let hour24 = h;
+        if (period === "PM" && h !== 12) hour24 += 12;
+        if (period === "AM" && h === 12) hour24 = 0;
+        const slotMinutes = hour24 * 60 + m;
+        const nowMinutes = nowCalgary.getHours() * 60 + nowCalgary.getMinutes();
+        return slotMinutes > nowMinutes;
+      })
+      .map((time) => ({
+        time,
+        available: !isBlackedOut && !bookedSlots.has(`${dateStr}|${time}`),
+      }));
 
     days.push({
       date: dateStr,
