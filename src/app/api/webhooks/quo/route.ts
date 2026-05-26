@@ -6,6 +6,7 @@ import type {
   QuoDialogueEntry,
 } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
+import { listPhoneNumbers, sendSMS } from "@/lib/quo-api";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as QuoWebhookPayload;
     const eventType = body.type;
+
+    // Handle incoming SMS for appointment confirmation
+    if (eventType === "message.received") {
+      return handleIncomingSMS(body);
+    }
 
     if (
       eventType !== "call.transcript.completed" &&
@@ -242,5 +248,88 @@ export async function POST(req: NextRequest) {
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+async function handleIncomingSMS(
+  body: QuoWebhookPayload
+): Promise<NextResponse> {
+  try {
+    const supabase = getSupabaseAdmin();
+    if (body.type !== "message.received") {
+      return NextResponse.json({ status: "ignored" });
+    }
+    const resource = body.data.resource;
+    const messageBody = resource.body;
+    const from = resource.from;
+
+    if (!messageBody || !from) {
+      return NextResponse.json({ status: "ignored", reason: "no body or from" });
+    }
+
+    const trimmed = messageBody.trim().toUpperCase();
+    if (trimmed !== "C") {
+      return NextResponse.json({ status: "ignored", reason: "not a confirmation" });
+    }
+
+    const normalizedFrom = normalizePhone(from);
+
+    // Find the most recent unconfirmed appointment for this phone
+    const { data: appointment } = await supabase
+      .from("appointments")
+      .select("*")
+      .eq("customer_phone", normalizedFrom)
+      .eq("confirmed", false)
+      .eq("sms_sent", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!appointment) {
+      return NextResponse.json({ status: "ignored", reason: "no matching appointment" });
+    }
+
+    // Mark as confirmed
+    await supabase
+      .from("appointments")
+      .update({
+        confirmed: true,
+        sms_confirmed_at: new Date().toISOString(),
+      })
+      .eq("id", appointment.id);
+
+    // Send confirmation SMS
+    try {
+      const scheduledAt = new Date(appointment.scheduled_at);
+      const dateStr = scheduledAt.toLocaleDateString("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        timeZone: "America/Edmonton",
+      });
+      const timeStr = scheduledAt.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "America/Edmonton",
+      });
+
+      const confirmMsg =
+        `Appointment confirmed! ${dateStr} at ${timeStr} ` +
+        `-South Trail Nissan with Hammad ` +
+        `We look forward to seeing you!`;
+
+      const phoneNumbers = await listPhoneNumbers();
+      if (phoneNumbers.length > 0) {
+        await sendSMS(phoneNumbers[0].id, normalizedFrom, confirmMsg);
+      }
+    } catch (smsError) {
+      console.error("Confirmation SMS send failed:", smsError);
+    }
+
+    return NextResponse.json({ status: "confirmed", appointmentId: appointment.id });
+  } catch (error) {
+    console.error("SMS confirmation error:", error);
+    return NextResponse.json({ error: "Failed to process SMS" }, { status: 500 });
   }
 }

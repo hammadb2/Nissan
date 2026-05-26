@@ -107,6 +107,34 @@ export async function getAllConversations(
   return all;
 }
 
+export async function sendSMS(
+  phoneNumberId: string,
+  to: string,
+  content: string
+): Promise<{ id: string }> {
+  const url = `${QUO_API_BASE}/v1/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: getApiKey(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: phoneNumberId,
+      to: [to],
+      content,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Quo SMS API ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
 export async function getAllCallsForParticipant(
   phoneNumberId: string,
   participant: string,
