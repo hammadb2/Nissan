@@ -56,18 +56,22 @@ export default function DashboardLayout({
   }, [role]);
 
   useEffect(() => {
-    async function syncRecent() {
-      if (syncRef.current) return;
-      syncRef.current = true;
-      try {
-        await fetch("/api/quo/sync-recent");
-      } catch { /* ignore network errors */ }
-      syncRef.current = false;
+    let cancelled = false;
+
+    async function syncLoop() {
+      while (!cancelled) {
+        syncRef.current = true;
+        try {
+          await fetch("/api/quo/sync-recent");
+        } catch { /* ignore network errors */ }
+        syncRef.current = false;
+        // Brief pause to avoid hammering the server, then immediately restart
+        if (!cancelled) await new Promise((r) => setTimeout(r, 1_000));
+      }
     }
 
-    syncRecent();
-    const timer = setInterval(syncRecent, 5_000);
-    return () => clearInterval(timer);
+    syncLoop();
+    return () => { cancelled = true; };
   }, []);
 
   async function handleLogout() {
