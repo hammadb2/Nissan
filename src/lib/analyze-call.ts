@@ -1,38 +1,49 @@
 import { getOpenAI } from "./openai";
-import type { AIAnalysis } from "./types";
+import type { GPTAnalysis } from "./types";
 
-const SYSTEM_PROMPT = `You are a call analysis assistant for a Nissan dealership's outbound calling team. 
-You analyze call transcripts and generate structured intelligence for CRM and coaching purposes.
+const SYSTEM_PROMPT = `You are an automotive sales call analyst. Analyze this call transcript and return JSON only.
+The caller is a VA making outbound calls for South Trail Nissan in Calgary, Canada.
+She is calling existing customers who have bought or serviced with the dealership.
+The goal of every call is to book a 20-minute appointment at the dealership.
 
-When analyzing a call, you must produce ALL of the following in a single response as valid JSON:
+Return this exact JSON structure:
+{
+  "gpt_summary": "2-3 sentence plain English summary of what happened on this call",
+  "crm_notes": "Professional CRM-ready notes in past tense. Ready to copy and paste.",
+  "outcome": "booked|hot|callback|voicemail|no_answer|not_interested|dnc|wrong_number|recent_buyer",
+  "sentiment": "warm|neutral|cold|hostile",
+  "interest_level": "hot|warm|cold|not_interested",
+  "is_recent_buyer": true or false,
+  "vehicle_ownership_duration": "how long they said they have had their vehicle or null",
+  "trade_in_available": true, false, or null,
+  "monthly_budget": "what they said their budget is or null",
+  "next_action": "callback|send_email|book_appointment|no_action",
+  "next_action_at": "ISO 8601 datetime in Calgary MST or null",
+  "next_action_details": "Exactly what to say or do on the next action",
+  "what_went_well": "One specific thing the caller did well on this call",
+  "coaching_tip": "One specific improvement for the next call. Be direct and actionable.",
+  "recent_buyer_flag_reason": "Why you flagged this as a recent buyer or null"
+}
 
-1. "ai_summary": A plain English summary of what the call was about in 2-3 sentences.
-2. "crm_notes": Professional CRM notes ready to copy and paste. Include key details like customer interest level, vehicle preferences, objections, and outcomes. Format with bullet points.
-3. "next_action_type": One of: "schedule_appointment", "schedule_callback", "send_email", "no_action"
-4. "next_action_date": ISO 8601 datetime for when the next action should happen. Use reasonable business hours (9 AM - 6 PM). If no action needed, set to null.
-5. "next_action_details": Specific description of what to do next, including day, time, and context.
-6. "coaching_positive": One specific thing the agent did well on this call.
-7. "coaching_improvement": One specific thing the agent should improve on the next call.
-
-Respond ONLY with valid JSON matching this exact structure. No markdown, no code fences, no extra text.`;
+Respond ONLY with valid JSON. No markdown, no code fences, no preamble.`;
 
 export async function analyzeCall(
   transcript: string,
   quoSummary: string | null
-): Promise<AIAnalysis> {
-  const userMessage = `Analyze this call transcript and Quo AI summary.
+): Promise<GPTAnalysis> {
+  const userMessage = `Analyze this call transcript.
 
 ${quoSummary ? `Quo AI Summary: ${quoSummary}\n\n` : ""}Transcript:
 ${transcript}`;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
     temperature: 0.3,
-    max_tokens: 1000,
+    max_tokens: 1500,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -40,10 +51,11 @@ ${transcript}`;
     throw new Error("No response from OpenAI");
   }
 
-  const parsed = JSON.parse(content) as AIAnalysis;
+  const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const parsed = JSON.parse(cleaned) as GPTAnalysis;
 
-  if (!parsed.ai_summary || !parsed.crm_notes || !parsed.next_action_type) {
-    throw new Error("Incomplete analysis from AI");
+  if (!parsed.gpt_summary || !parsed.crm_notes || !parsed.outcome) {
+    throw new Error("Incomplete analysis from GPT-4o");
   }
 
   return parsed;
@@ -51,11 +63,12 @@ ${transcript}`;
 
 export async function generateWeeklyReport(
   calls: Array<{
-    ai_summary: string | null;
-    coaching_positive: string | null;
-    coaching_improvement: string | null;
-    next_action_type: string | null;
-    is_recent_buyer: boolean;
+    gpt_summary: string | null;
+    what_went_well: string | null;
+    coaching_tip: string | null;
+    outcome: string | null;
+    interest_level: string | null;
+    is_recent_buyer_flag: boolean;
     created_at: string;
   }>,
   agentName: string
@@ -64,20 +77,25 @@ export async function generateWeeklyReport(
     .map(
       (c, i) =>
         `Call ${i + 1} (${new Date(c.created_at).toLocaleDateString()}):
-Summary: ${c.ai_summary ?? "N/A"}
-Positive: ${c.coaching_positive ?? "N/A"}
-Improvement: ${c.coaching_improvement ?? "N/A"}
-Action: ${c.next_action_type ?? "N/A"}
-Recent Buyer Flag: ${c.is_recent_buyer ? "YES" : "No"}`
+Summary: ${c.gpt_summary ?? "N/A"}
+Outcome: ${c.outcome ?? "N/A"}
+Interest: ${c.interest_level ?? "N/A"}
+Positive: ${c.what_went_well ?? "N/A"}
+Improvement: ${c.coaching_tip ?? "N/A"}
+Recent Buyer Flag: ${c.is_recent_buyer_flag ? "YES" : "No"}`
     )
     .join("\n\n");
 
+  const bookedCount = calls.filter((c) => c.outcome === "booked").length;
+  const hotCount = calls.filter((c) => c.interest_level === "hot").length;
+  const recentBuyerCount = calls.filter((c) => c.is_recent_buyer_flag).length;
+
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       {
         role: "system",
-        content: `You are a sales coaching expert. Generate a weekly performance report for a dealership outbound caller. Be constructive, specific, and actionable. Format in clear sections with headers.`,
+        content: `You are a sales coaching expert for an automotive dealership. Generate a weekly performance report for an outbound caller. Be constructive, specific, and actionable. Reference specific call moments when possible. Format in clear sections with headers.`,
       },
       {
         role: "user",
@@ -85,22 +103,24 @@ Recent Buyer Flag: ${c.is_recent_buyer ? "YES" : "No"}`
 
 Stats:
 - Total calls: ${calls.length}
-- Appointments booked: ${calls.filter((c) => c.next_action_type === "schedule_appointment").length}
-- Recent buyer flags: ${calls.filter((c) => c.is_recent_buyer).length}
+- Appointments booked: ${bookedCount}
+- Hot leads: ${hotCount}
+- Recent buyer flags: ${recentBuyerCount}
 
 Call details:
 ${callSummaries}
 
 Provide:
-1. Overall performance summary
-2. Top 3 strengths observed across all calls
-3. Top 3 areas for improvement
-4. Specific coaching recommendations for next week
-5. Any patterns in the recent buyer flags`,
+1. Total calls made vs target (200/day × 5 = 1000/week)
+2. Appointment booking rate
+3. Top 3 objections heard this week
+4. What ${agentName} handled well — with specific examples from transcripts
+5. Three specific improvements for next week — referenced to actual call moments
+6. Contacts to prioritize next week — hot leads and scheduled callbacks`,
       },
     ],
     temperature: 0.5,
-    max_tokens: 1500,
+    max_tokens: 2000,
   });
 
   return response.choices[0]?.message?.content ?? "Unable to generate report.";

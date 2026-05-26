@@ -3,21 +3,23 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: NextRequest,
+export async function PATCH(
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   const supabase = getSupabaseAdmin();
+  const body = await req.json();
 
   const { data, error } = await supabase
-    .from("call_records")
-    .select("*, contacts(*)")
+    .from("appointments")
+    .update(body)
     .eq("id", id)
+    .select()
     .single();
 
-  if (error || !data) {
-    return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json(data);
