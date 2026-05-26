@@ -130,7 +130,7 @@ Return JSON only:
 }`;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o",
+    model: "meta/llama-4-maverick-17b-128e-instruct",
     messages: [
       { role: "system", content: "You are a direct, actionable sales coach. Return valid JSON only. No markdown." },
       { role: "user", content: prompt },
@@ -141,7 +141,7 @@ Return JSON only:
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    return NextResponse.json({ error: "No response from GPT" }, { status: 500 });
+    return NextResponse.json({ error: "No response from NVIDIA NIM" }, { status: 500 });
   }
 
   const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

@@ -37,7 +37,7 @@ ${quoSummary ? `Quo AI Summary: ${quoSummary}\n\n` : ""}Transcript:
 ${transcript}`;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o",
+    model: "meta/llama-4-maverick-17b-128e-instruct",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
@@ -48,14 +48,14 @@ ${transcript}`;
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error("No response from OpenAI");
+    throw new Error("No response from NVIDIA NIM");
   }
 
   const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   const parsed = JSON.parse(cleaned) as GPTAnalysis;
 
   if (!parsed.gpt_summary || !parsed.crm_notes || !parsed.outcome) {
-    throw new Error("Incomplete analysis from GPT-4o");
+    throw new Error("Incomplete analysis from NVIDIA NIM");
   }
 
   return parsed;
@@ -91,7 +91,7 @@ Recent Buyer Flag: ${c.is_recent_buyer_flag ? "YES" : "No"}`
   const recentBuyerCount = calls.filter((c) => c.is_recent_buyer_flag).length;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o",
+    model: "meta/llama-4-maverick-17b-128e-instruct",
     messages: [
       {
         role: "system",
