@@ -5,6 +5,23 @@ import { normalizePhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Returns the correct UTC offset string for Calgary (America/Edmonton).
+ * MDT (Mar–Nov) = "-06:00", MST (Nov–Mar) = "-07:00".
+ * We determine this by checking what offset JS gives for a date in that zone.
+ */
+function getCalgaryUTCOffset(date: string, time: string): string {
+  const probe = new Date(`${date}T${time}:00Z`);
+  const calgaryStr = probe.toLocaleString("en-US", { timeZone: "America/Edmonton" });
+  const calgaryLocal = new Date(calgaryStr);
+  const diffMinutes = (probe.getTime() - calgaryLocal.getTime()) / 60000;
+  const sign = diffMinutes >= 0 ? "+" : "-";
+  const absMin = Math.abs(diffMinutes);
+  const hours = String(Math.floor(absMin / 60)).padStart(2, "0");
+  const mins = String(absMin % 60).padStart(2, "0");
+  return `${sign}${hours}:${mins}`;
+}
+
 export async function GET() {
   const supabase = getSupabaseAdmin();
 
@@ -50,10 +67,9 @@ export async function POST(req: NextRequest) {
 
     const phoneVerified = !!existingContact || (callCount ?? 0) > 0;
 
-    // Build scheduled_at from date + time
-    const scheduledAt = new Date(`${date}T${time}:00`);
-    // Adjust for MST (UTC-7)
-    scheduledAt.setHours(scheduledAt.getHours() + 7);
+    // Build scheduled_at in Calgary timezone (handles MST/MDT automatically)
+    const calgaryOffset = getCalgaryUTCOffset(date, time);
+    const scheduledAt = new Date(`${date}T${time}:00${calgaryOffset}`);
 
     const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
