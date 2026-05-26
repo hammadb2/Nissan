@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
   LogOut,
   BookOpen,
   MessageCircle,
+  Clock,
 } from "lucide-react";
 
 type UserRole = "hammad" | "jea" | "dann";
@@ -48,6 +49,31 @@ export default function DashboardLayout({
     if (typeof document === "undefined") return null;
     return getCookie("bdc_role") as UserRole | null;
   });
+
+  const formatCalgaryTime = useCallback(() => {
+    const now = new Date();
+    const time = now.toLocaleTimeString("en-US", {
+      timeZone: "America/Edmonton",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    const date = now.toLocaleDateString("en-US", {
+      timeZone: "America/Edmonton",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    return { time, date };
+  }, []);
+
+  const [calgaryTime, setCalgaryTime] = useState(formatCalgaryTime);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCalgaryTime(formatCalgaryTime()), 1_000);
+    return () => clearInterval(timer);
+  }, [formatCalgaryTime]);
 
   useEffect(() => {
     if (!role) {
@@ -97,9 +123,18 @@ export default function DashboardLayout({
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            <Link href={navItems[0]?.href ?? "/dashboard/boss"} className="font-bold text-lg">
-              Hammad BDC
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href={navItems[0]?.href ?? "/dashboard/boss"} className="font-bold text-lg">
+                Hammad BDC
+              </Link>
+              <div className="flex items-center gap-1.5 bg-gray-100 px-3 py-1 rounded-lg text-sm">
+                <Clock size={14} className="text-gray-500" />
+                <span className="font-mono font-medium text-gray-700">{calgaryTime.time}</span>
+                <span className="text-gray-400">·</span>
+                <span className="text-gray-500">{calgaryTime.date}</span>
+                <span className="text-xs text-gray-400">MST</span>
+              </div>
+            </div>
             <div className="flex items-center gap-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
