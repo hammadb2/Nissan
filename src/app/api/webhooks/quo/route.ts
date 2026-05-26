@@ -10,6 +10,18 @@ import { listPhoneNumbers, sendSMS } from "@/lib/quo-api";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Extract the external phone number from a Quo webhook context.
+ * Handles both legacy format ({ identifier: string }) and beta format (string).
+ */
+function getExternalPhone(context: QuoWebhookPayload["data"]["context"]): string | null {
+  const ext = context.participants?.external?.[0];
+  if (!ext) return null;
+  if (typeof ext === "string") return ext;
+  if (typeof ext === "object" && "identifier" in ext) return ext.identifier;
+  return null;
+}
+
 function dialogueToTranscript(dialogue: QuoDialogueEntry[]): string {
   return dialogue
     .map((entry) => {
@@ -45,10 +57,8 @@ export async function POST(req: NextRequest) {
     const callId = body.data.resource.callId;
     const context = body.data.context;
 
-    const externalParticipant = context.participants?.external?.[0];
-    const customerPhone = externalParticipant?.identifier
-      ? normalizePhone(externalParticipant.identifier)
-      : null;
+    const externalRaw = getExternalPhone(context);
+    const customerPhone = externalRaw ? normalizePhone(externalRaw) : null;
 
     // Look up contact by phone
     let contactId: string | null = null;
@@ -371,13 +381,10 @@ async function handleCallCompleted(
     const duration = resource.duration ?? null;
     const calledAt = resource.createdAt;
 
-    const externalParticipant = context.participants?.external?.[0];
-    const customerPhone = externalParticipant?.identifier
-      ? normalizePhone(externalParticipant.identifier)
-      : null;
+    const externalRaw = getExternalPhone(context);
+    const customerPhone = externalRaw ? normalizePhone(externalRaw) : null;
 
-    const phoneNumberInfo = context.phoneNumber;
-    const agentNumber = phoneNumberInfo?.number ?? null;
+    const agentNumber = context.phoneNumber?.number ?? null;
     const fromNumber = direction === "outgoing" ? agentNumber : customerPhone;
     const toNumber = direction === "outgoing" ? customerPhone : agentNumber;
 
