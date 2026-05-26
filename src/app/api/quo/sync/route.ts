@@ -167,6 +167,14 @@ export async function POST(req: NextRequest) {
           const callDate = call.createdAt.split("T")[0];
           dailyCallCounts[callDate] = (dailyCallCounts[callDate] ?? 0) + 1;
 
+          // Determine from/to numbers
+          const fromNumber = call.direction === "outgoing"
+            ? phoneNumber.number
+            : (externalPhone ?? null);
+          const toNumber = call.direction === "outgoing"
+            ? (externalPhone ?? null)
+            : phoneNumber.number;
+
           if (existing) {
             // Update existing record with any new data
             const updateFields: Record<string, unknown> = {};
@@ -183,6 +191,15 @@ export async function POST(req: NextRequest) {
             }
             if (contactId) {
               updateFields.contact_id = contactId;
+            }
+            if (fromNumber) {
+              updateFields.from_number = fromNumber;
+            }
+            if (toNumber) {
+              updateFields.to_number = toNumber;
+            }
+            if (call.direction) {
+              updateFields.direction = call.direction;
             }
 
             if (Object.keys(updateFields).length > 0) {
@@ -205,6 +222,9 @@ export async function POST(req: NextRequest) {
                 transcript_received: transcriptReceived,
                 summary_received: summaryReceived,
                 recording_url: recordingUrl,
+                from_number: fromNumber,
+                to_number: toNumber,
+                direction: call.direction ?? null,
               },
               { onConflict: "quo_call_id" }
             );

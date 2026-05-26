@@ -19,7 +19,7 @@ import {
 import type { CallRecordWithContact } from "@/lib/types";
 
 export default function CallsPage() {
-  const [calls, setCalls] = useState<(CallRecordWithContact & { recording_url?: string | null })[]>([]);
+  const [calls, setCalls] = useState<CallRecordWithContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{
@@ -373,15 +373,22 @@ export default function CallsPage() {
         {filteredCalls.map((call) => {
           const isExpanded = expandedCall === call.id;
           const contact = call.contacts;
+          const externalNumber = call.direction === "outgoing"
+            ? (call.to_number ?? call.from_number)
+            : (call.from_number ?? call.to_number);
           const contactName = contact
             ? `${contact.first_name} ${contact.last_name}`
-            : "Unknown Contact";
+            : (externalNumber || "Unknown Contact");
           const callDate = call.called_at
-            ? new Date(call.called_at).toLocaleString("en-CA", {
+            ? new Date(call.called_at).toLocaleString("en-US", {
                 timeZone: "America/Edmonton",
-                dateStyle: "medium",
-                timeStyle: "short",
-              })
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+              }) + " MST"
             : "";
           const duration = call.duration_seconds
             ? `${Math.floor(call.duration_seconds / 60)}:${String(
