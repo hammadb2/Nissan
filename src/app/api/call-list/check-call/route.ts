@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   listPhoneNumbers,
   listCalls,
+  listRecentCalls,
   getCallTranscript,
   getCallSummary,
   getCallRecordings,
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const normalizedPhone = normalizePhone(phone);
+    const phoneDigits = phone.replace(/\D/g, "");
 
     // Get workspace phone numbers
     const phoneNumbers = await listPhoneNumbers();
@@ -46,19 +48,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No phone numbers found in Quo" }, { status: 404 });
     }
 
-    // Look for recent calls to this number (last 30 minutes)
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    // Look for recent calls to this number (last 4 hours)
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
 
     let latestCall = null;
     let matchedPhoneNumber = null;
 
+    // Try 1: Search by participant (exact E.164 match)
     for (const pn of phoneNumbers) {
       try {
         const result = await listCalls(pn.id, normalizedPhone, {
-          createdAfter: thirtyMinAgo,
+          createdAfter: fourHoursAgo,
         });
         if (result.data.length > 0) {
-          // Get the most recent call
           const sorted = result.data.sort(
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
@@ -72,10 +74,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Try 2: If participant search didn't find it, fetch all recent calls
+    // and match by comparing digits (handles format mismatches)
+    if (!latestCall) {
+      for (const pn of phoneNumbers) {
+        try {
+          const result = await listRecentCalls(pn.id, fourHoursAgo);
+          for (const call of result.data) {
+            const callParticipants = call.participants ?? [];
+            const callDigitsMatch = callParticipants.some((p) => {
+              const pDigits = p.replace(/\D/g, "");
+              return pDigits.includes(phoneDigits) || phoneDigits.includes(pDigits);
+            });
+            if (callDigitsMatch) {
+              if (!latestCall || new Date(call.createdAt) > new Date(latestCall.createdAt)) {
+                latestCall = call;
+                matchedPhoneNumber = pn;
+              }
+            }
+          }
+        } catch {
+          // Skip
+        }
+      }
+    }
+
     if (!latestCall || !matchedPhoneNumber) {
       return NextResponse.json({
         status: "not_found",
-        message: "No recent call found in Quo for this number. Try again in a moment.",
+        message: "No recent call found in Quo for this number. Make sure the call was made through Quo, then try again.",
       });
     }
 
