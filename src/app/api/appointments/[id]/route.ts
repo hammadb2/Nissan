@@ -13,7 +13,7 @@ function getCalgaryUTCOffset(date: string, time: string): string {
   const calgaryStr = probe.toLocaleString("en-US", { timeZone: "America/Edmonton" });
   const calgaryLocal = new Date(calgaryStr);
   const diffMinutes = (probe.getTime() - calgaryLocal.getTime()) / 60000;
-  const sign = diffMinutes >= 0 ? "+" : "-";
+  const sign = diffMinutes >= 0 ? "-" : "+";
   const absMin = Math.abs(diffMinutes);
   const hours = String(Math.floor(absMin / 60)).padStart(2, "0");
   const mins = String(absMin % 60).padStart(2, "0");
