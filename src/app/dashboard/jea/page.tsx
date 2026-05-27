@@ -259,11 +259,11 @@ export default function JeaCommandCenter() {
                     setExpandedContact(isExpanded ? null : contact.id)
                   }
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold truncate">
                             {contact.first_name} {contact.last_name}
                           </span>
                           {contact.interest_level === "hot" && (
@@ -282,7 +282,7 @@ export default function JeaCommandCenter() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {contact.call_count > 0 && (
                         <span className="text-xs text-gray-500">
                           {contact.call_count} call
@@ -299,7 +299,7 @@ export default function JeaCommandCenter() {
 
                   {/* Pre-call info */}
                   {!isExpanded && contact.call_count > 0 && (
-                    <div className="mt-2 text-xs text-gray-500 flex items-center gap-3">
+                    <div className="mt-2 text-xs text-gray-500 flex items-center gap-3 flex-wrap">
                       <span className="flex items-center gap-1">
                         <Clock size={12} />
                         Last:{" "}

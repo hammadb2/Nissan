@@ -242,12 +242,12 @@ export default function BossDashboard() {
                 } overflow-hidden`}
               >
                 <div
-                  className="p-4 cursor-pointer flex items-center justify-between"
+                  className="p-4 cursor-pointer flex items-center justify-between gap-3"
                   onClick={() => setExpandedCall(isExpanded ? null : call.id)}
                 >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold truncate">
                         {contact
                           ? `${contact.first_name} ${contact.last_name}`
                           : (call.from_number ?? call.to_number ?? "Unknown")}
@@ -276,8 +276,8 @@ export default function BossDashboard() {
                       )}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400">
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-gray-400 hidden sm:inline">
                       {new Date(call.called_at).toLocaleTimeString("en-US", {
                         timeZone: "America/Edmonton",
                         hour: "numeric",

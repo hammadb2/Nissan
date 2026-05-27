@@ -17,6 +17,8 @@ import {
   MessageCircle,
   Clock,
   FileText,
+  Menu,
+  X,
 } from "lucide-react";
 
 type UserRole = "hammad" | "jea" | "dann";
@@ -108,6 +110,8 @@ export default function DashboardLayout({
     window.location.assign("/login");
   }
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const navItems = role
     ? allNavItems.filter((item) => item.roles.includes(role))
     : [];
@@ -136,7 +140,8 @@ export default function DashboardLayout({
                 <span className="text-gray-500">{calgaryTime.date}</span>
               </div>
             </div>
-            <div className="flex items-center gap-0.5 flex-wrap justify-end">
+            {/* Desktop nav */}
+            <div className="hidden md:flex items-center gap-0.5">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
@@ -164,8 +169,48 @@ export default function DashboardLayout({
                 <LogOut size={14} />
               </button>
             </div>
+
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100"
+            >
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
           </div>
         </div>
+
+        {/* Mobile menu dropdown */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 px-4 py-3 space-y-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </Link>
+              );
+            })}
+            <button
+              onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors w-full"
+            >
+              <LogOut size={16} />
+              Log Out
+            </button>
+          </div>
+        )}
       </nav>
       <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
     </div>
