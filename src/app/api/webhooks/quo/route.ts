@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
 import { listPhoneNumbers, sendSMS } from "@/lib/quo-api";
+import { generateConversationReply } from "@/lib/sms-ai";
 
 export const dynamic = "force-dynamic";
 
@@ -202,6 +203,11 @@ export async function POST(req: NextRequest) {
           if (analysis.outcome === "dnc") {
             contactUpdate.status = "dnc";
           }
+          if (analysis.outcome === "wrong_number") {
+            contactUpdate.status = "closed";
+            contactUpdate.assigned_call_date = null;
+            contactUpdate.next_action = "no_action";
+          }
 
           delete contactUpdate.call_count;
           await supabase
@@ -267,6 +273,24 @@ export async function POST(req: NextRequest) {
             hot_leads: analysis.interest_level === "hot" && analysis.outcome !== "booked" ? 1 : 0,
           });
         }
+        // Auto-trigger SMS follow-up for voicemails
+        if (analysis.outcome === "voicemail" && contactId) {
+          try {
+            const baseUrl = process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+            await fetch(`${baseUrl}/api/sms/trigger`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contactId,
+                callRecordId: callRecord.id,
+              }),
+            });
+          } catch (smsErr) {
+            console.error("Auto SMS trigger failed:", smsErr);
+          }
+        }
       } catch (analysisError) {
         console.error("GPT-4o analysis failed:", analysisError);
       }
@@ -298,71 +322,293 @@ async function handleIncomingSMS(
       return NextResponse.json({ status: "ignored", reason: "no body or from" });
     }
 
-    const trimmed = messageBody.trim().toUpperCase();
-    if (trimmed !== "C") {
-      return NextResponse.json({ status: "ignored", reason: "not a confirmation" });
-    }
-
     const normalizedFrom = normalizePhone(from);
+    const trimmed = messageBody.trim().toUpperCase();
 
-    // Find the most recent unconfirmed appointment for this phone
-    const { data: appointment } = await supabase
-      .from("appointments")
-      .select("*")
-      .eq("customer_phone", normalizedFrom)
-      .eq("confirmed", false)
-      .eq("sms_sent", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    // Check for appointment confirmation first ("C")
+    if (trimmed === "C") {
+      const { data: appointment } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("customer_phone", normalizedFrom)
+        .eq("confirmed", false)
+        .eq("sms_sent", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
 
-    if (!appointment) {
-      return NextResponse.json({ status: "ignored", reason: "no matching appointment" });
-    }
+      if (appointment) {
+        await supabase
+          .from("appointments")
+          .update({
+            confirmed: true,
+            sms_confirmed_at: new Date().toISOString(),
+          })
+          .eq("id", appointment.id);
 
-    // Mark as confirmed
-    await supabase
-      .from("appointments")
-      .update({
-        confirmed: true,
-        sms_confirmed_at: new Date().toISOString(),
-      })
-      .eq("id", appointment.id);
+        try {
+          const scheduledAt = new Date(appointment.scheduled_at);
+          const dateStr = scheduledAt.toLocaleDateString("en-CA", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            timeZone: "America/Edmonton",
+          });
+          const timeStr = scheduledAt.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "America/Edmonton",
+          });
 
-    // Send confirmation SMS
-    try {
-      const scheduledAt = new Date(appointment.scheduled_at);
-      const dateStr = scheduledAt.toLocaleDateString("en-CA", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        timeZone: "America/Edmonton",
-      });
-      const timeStr = scheduledAt.toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: "America/Edmonton",
-      });
+          const confirmMsg =
+            `Appointment confirmed! ${dateStr} at ${timeStr} ` +
+            `-South Trail Nissan with Hammad ` +
+            `We look forward to seeing you!`;
 
-      const confirmMsg =
-        `Appointment confirmed! ${dateStr} at ${timeStr} ` +
-        `-South Trail Nissan with Hammad ` +
-        `We look forward to seeing you!`;
+          const phoneNumbers = await listPhoneNumbers();
+          if (phoneNumbers.length > 0) {
+            await sendSMS(phoneNumbers[0].id, normalizedFrom, confirmMsg);
+          }
+        } catch (smsError) {
+          console.error("Confirmation SMS send failed:", smsError);
+        }
 
-      const phoneNumbers = await listPhoneNumbers();
-      if (phoneNumbers.length > 0) {
-        await sendSMS(phoneNumbers[0].id, normalizedFrom, confirmMsg);
+        return NextResponse.json({ status: "confirmed", appointmentId: appointment.id });
       }
-    } catch (smsError) {
-      console.error("Confirmation SMS send failed:", smsError);
     }
 
-    return NextResponse.json({ status: "confirmed", appointmentId: appointment.id });
+    // Check for active AI SMS conversation
+    return handleAISMSReply(normalizedFrom, messageBody, resource.id);
   } catch (error) {
-    console.error("SMS confirmation error:", error);
+    console.error("SMS handling error:", error);
     return NextResponse.json({ error: "Failed to process SMS" }, { status: 500 });
   }
+}
+
+/**
+ * Handle an inbound SMS that is part of an AI conversation.
+ * Reads conversation history, generates AI reply, sends it, and takes action.
+ */
+async function handleAISMSReply(
+  normalizedFrom: string,
+  messageBody: string,
+  quoMessageId: string | null
+): Promise<NextResponse> {
+  const supabase = getSupabaseAdmin();
+
+  // Find contact by phone
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("phone", normalizedFrom)
+    .single();
+
+  if (!contact) {
+    return NextResponse.json({ status: "ignored", reason: "unknown sender" });
+  }
+
+  // Find active SMS conversation for this contact
+  const { data: conversation } = await supabase
+    .from("sms_conversations")
+    .select("*")
+    .eq("contact_id", contact.id)
+    .in("status", ["awaiting_reply", "active"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!conversation) {
+    return NextResponse.json({ status: "ignored", reason: "no active conversation" });
+  }
+
+  const now = new Date().toISOString();
+
+  // Store the inbound message
+  await supabase.from("sms_messages").insert({
+    conversation_id: conversation.id,
+    contact_id: contact.id,
+    direction: "inbound",
+    content: messageBody,
+    sent_by: "ai",
+    quo_message_id: quoMessageId,
+  });
+
+  // Update conversation status
+  await supabase
+    .from("sms_conversations")
+    .update({
+      status: "active",
+      customer_replied_at: conversation.customer_replied_at ?? now,
+      updated_at: now,
+    })
+    .eq("id", conversation.id);
+
+  // Load full conversation history
+  const { data: messages } = await supabase
+    .from("sms_messages")
+    .select("*")
+    .eq("conversation_id", conversation.id)
+    .order("created_at", { ascending: true });
+
+  const history = (messages ?? []).map((m) => ({
+    role: m.direction === "inbound" ? "customer" as const : "ai" as const,
+    content: m.content,
+    created_at: m.created_at,
+  }));
+
+  // Generate AI reply
+  const aiResult = await generateConversationReply(
+    {
+      firstName: contact.first_name,
+      lastName: contact.last_name,
+      phone: contact.phone,
+      vehicleYear: contact.vehicle_year,
+      vehicleMake: contact.vehicle_make,
+      vehicleModel: contact.vehicle_model,
+      callNotes: null,
+      callSummary: null,
+      interestLevel: contact.interest_level,
+      vehicleOwnershipDuration: contact.vehicle_ownership_duration,
+      tradeInAvailable: contact.trade_in_available,
+      monthlyBudget: contact.monthly_budget,
+    },
+    history
+  );
+
+  // Send AI reply via Quo
+  await sendSMS(conversation.phone_number_id, contact.phone, aiResult.message);
+
+  // Store outbound reply
+  await supabase.from("sms_messages").insert({
+    conversation_id: conversation.id,
+    contact_id: contact.id,
+    direction: "outbound",
+    content: aiResult.message,
+    sent_by: "ai",
+  });
+
+  // Update contact with extracted info
+  if (aiResult.extractedInfo) {
+    const contactUpdate: Record<string, unknown> = { updated_at: now };
+    if (aiResult.extractedInfo.vehicleOwnershipDuration) {
+      contactUpdate.vehicle_ownership_duration = aiResult.extractedInfo.vehicleOwnershipDuration;
+    }
+    if (aiResult.extractedInfo.tradeInAvailable !== undefined) {
+      contactUpdate.trade_in_available = aiResult.extractedInfo.tradeInAvailable;
+    }
+    if (aiResult.extractedInfo.monthlyBudget) {
+      contactUpdate.monthly_budget = aiResult.extractedInfo.monthlyBudget;
+    }
+    await supabase.from("contacts").update(contactUpdate).eq("id", contact.id);
+
+    // Merge extracted info into conversation record
+    const existingInfo = (conversation.ai_extracted_info as Record<string, unknown>) ?? {};
+    await supabase
+      .from("sms_conversations")
+      .update({
+        ai_extracted_info: { ...existingInfo, ...aiResult.extractedInfo },
+        updated_at: now,
+      })
+      .eq("id", conversation.id);
+  }
+
+  // Handle actions
+  if (aiResult.action === "book_appointment" && aiResult.appointmentDetails) {
+    const details = aiResult.appointmentDetails;
+    const { data: newAppt } = await supabase
+      .from("appointments")
+      .insert({
+        contact_id: contact.id,
+        customer_name: details.customerName || `${contact.first_name} ${contact.last_name}`,
+        customer_phone: contact.phone,
+        scheduled_at: `${details.date}T${details.time}:00`,
+        appointment_type: "in_person",
+        source: "outbound_call",
+        vehicle_interested: details.vehicleInterested,
+        budget: details.budget,
+        trade_in: details.tradeIn,
+        confirmed: false,
+        sms_sent: true,
+      })
+      .select()
+      .single();
+
+    await supabase
+      .from("sms_conversations")
+      .update({
+        status: "booked",
+        appointment_id: newAppt?.id ?? null,
+        updated_at: now,
+      })
+      .eq("id", conversation.id);
+
+    await supabase
+      .from("contacts")
+      .update({ status: "appointment_booked", updated_at: now })
+      .eq("id", contact.id);
+
+    // Send WhatsApp notification (inline to match existing pattern)
+    try {
+      const whatsappUrl = process.env.WHATSAPP_WEBHOOK_URL;
+      if (whatsappUrl) {
+        const apptDate = new Date(`${details.date}T${details.time}:00`);
+        const timeStr = apptDate.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: "America/Edmonton",
+        });
+        const dateStr = apptDate.toLocaleDateString("en-CA", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          timeZone: "America/Edmonton",
+        });
+        const msg =
+          `NEW APPOINTMENT (AI SMS)\n` +
+          `${details.customerName || contact.first_name + " " + contact.last_name}\n` +
+          `${dateStr} at ${timeStr}\n` +
+          `Phone: ${contact.phone}\n` +
+          `Vehicle: ${details.vehicleInterested ?? "N/A"}\n` +
+          `Budget: ${details.budget ?? "N/A"}\n` +
+          `Trade-in: ${details.tradeIn ? "Yes" : "No"}`;
+
+        await fetch(whatsappUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: msg }),
+        });
+      }
+    } catch (whatsappErr) {
+      console.error("WhatsApp notification failed:", whatsappErr);
+    }
+  } else if (aiResult.action === "flag_hot_lead") {
+    await supabase
+      .from("sms_conversations")
+      .update({
+        status: "flagged_hot",
+        flagged_reason: aiResult.flagReason ?? "AI flagged for human takeover",
+        updated_at: now,
+      })
+      .eq("id", conversation.id);
+
+    await supabase
+      .from("contacts")
+      .update({ interest_level: "hot", updated_at: now })
+      .eq("id", contact.id);
+  } else if (aiResult.action === "end_conversation") {
+    await supabase
+      .from("sms_conversations")
+      .update({ status: "ended", updated_at: now })
+      .eq("id", conversation.id);
+  }
+
+  return NextResponse.json({
+    status: "replied",
+    conversationId: conversation.id,
+    action: aiResult.action,
+  });
 }
 
 async function handleCallCompleted(

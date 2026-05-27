@@ -12,12 +12,16 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  MessageSquare,
+  Save,
+  Bell,
 } from "lucide-react";
 import type {
   JeaStats,
   DannStats,
   PipelineStats,
   CallRecordWithContact,
+  SMSStats,
 } from "@/lib/types";
 
 export default function BossDashboard() {
@@ -29,11 +33,18 @@ export default function BossDashboard() {
   const [coachingReport, setCoachingReport] = useState<string | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [smsStats, setSmsStats] = useState<SMSStats | null>(null);
+  const [programs, setPrograms] = useState("");
+  const [aiRules, setAiRules] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"programs" | "rules">("programs");
 
   const fetchData = useCallback(async () => {
-    const [statsRes, callsRes] = await Promise.all([
+    const [statsRes, callsRes, smsRes, settingsRes] = await Promise.all([
       fetch("/api/stats"),
       fetch("/api/calls/today"),
+      fetch("/api/sms/stats").catch(() => null),
+      fetch("/api/sms/settings").catch(() => null),
     ]);
 
     const [statsData, callsData] = await Promise.all([
@@ -45,6 +56,18 @@ export default function BossDashboard() {
     setDann(statsData.dann);
     setPipeline(statsData.pipeline);
     setCalls(callsData.calls ?? []);
+
+    if (smsRes && smsRes.ok) {
+      const smsData = await smsRes.json();
+      setSmsStats(smsData);
+    }
+
+    if (settingsRes && settingsRes.ok) {
+      const settingsData = await settingsRes.json();
+      if (settingsData.active_programs) setPrograms(settingsData.active_programs.value);
+      if (settingsData.ai_rules) setAiRules(settingsData.ai_rules.value);
+    }
+
     setLoading(false);
   }, []);
 
@@ -353,6 +376,103 @@ export default function BossDashboard() {
               No calls today yet. Calls will appear here as Jea makes them.
             </p>
           )}
+        </div>
+      </div>
+
+      {/* SMS AI Dashboard */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare size={18} className="text-indigo-600" />
+          <h2 className="font-semibold">SMS AI Follow-up</h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+          <Metric label="Active Convos" value={smsStats?.active_conversations ?? 0} className="text-indigo-600" />
+          <Metric label="Replies Today" value={smsStats?.replies_today ?? 0} className="text-green-600" />
+          <Metric label="AI Booked" value={smsStats?.appointments_booked_by_ai ?? 0} className="text-green-600" />
+          <Metric label="Flagged" value={smsStats?.flagged_for_human ?? 0} className="text-red-600" />
+          <Metric label="Awaiting Reply" value={smsStats?.awaiting_reply ?? 0} />
+          <Metric label="Sent Today" value={smsStats?.total_sent_today ?? 0} />
+        </div>
+
+        {/* Flagged conversations alert */}
+        {(smsStats?.flagged_for_human ?? 0) > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+            <Bell size={16} className="text-red-600" />
+            <span className="text-sm text-red-800 font-medium">
+              {smsStats?.flagged_for_human} conversation{(smsStats?.flagged_for_human ?? 0) > 1 ? "s" : ""} flagged for human takeover
+            </span>
+          </div>
+        )}
+
+        {/* Programs & Rules Editor */}
+        <div className="border-t pt-4">
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={() => setSettingsTab("programs")}
+              className={`text-sm font-medium px-3 py-1 rounded-lg ${
+                settingsTab === "programs" ? "bg-indigo-100 text-indigo-700" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Programs
+            </button>
+            <button
+              onClick={() => setSettingsTab("rules")}
+              className={`text-sm font-medium px-3 py-1 rounded-lg ${
+                settingsTab === "rules" ? "bg-indigo-100 text-indigo-700" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Custom Rules
+            </button>
+          </div>
+
+          {settingsTab === "programs" && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">
+                Update current manufacturer programs. The AI references these in every conversation.
+              </p>
+              <textarea
+                value={programs}
+                onChange={(e) => setPrograms(e.target.value)}
+                rows={4}
+                className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="e.g. 0% APR on 2024 Rogue for 60 months, ends June 30. $3000 loyalty bonus on Pathfinder trade-ups."
+              />
+            </div>
+          )}
+
+          {settingsTab === "rules" && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">
+                Add custom rules for the AI. These are in addition to the standard rules (no quoting payments, etc).
+              </p>
+              <textarea
+                value={aiRules}
+                onChange={(e) => setAiRules(e.target.value)}
+                rows={4}
+                className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="e.g. Always mention we are open Saturdays. Never reference the Murano — it is discontinued."
+              />
+            </div>
+          )}
+
+          <button
+            onClick={async () => {
+              setSavingSettings(true);
+              const key = settingsTab === "programs" ? "active_programs" : "ai_rules";
+              const value = settingsTab === "programs" ? programs : aiRules;
+              await fetch("/api/sms/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key, value }),
+              });
+              setSavingSettings(false);
+            }}
+            disabled={savingSettings}
+            className="mt-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <Save size={14} />
+            {savingSettings ? "Saving..." : "Save"}
+          </button>
         </div>
       </div>
 
