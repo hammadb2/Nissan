@@ -325,8 +325,8 @@ async function handleIncomingSMS(
     const normalizedFrom = normalizePhone(from);
     const trimmed = messageBody.trim().toUpperCase();
 
-    // Check for appointment confirmation first ("C")
-    if (trimmed === "C") {
+    // Check for appointment confirmation first ("C", "CONFIRM", "YES")
+    if (trimmed === "C" || trimmed === "CONFIRM" || trimmed === "YES") {
       const { data: appointment } = await supabase
         .from("appointments")
         .select("*")
@@ -363,7 +363,7 @@ async function handleIncomingSMS(
 
           const confirmMsg =
             `Appointment confirmed! ${dateStr} at ${timeStr} ` +
-            `-South Trail Nissan with Hammad ` +
+            `South Trail Nissan with Hammad. ` +
             `We look forward to seeing you!`;
 
           const phoneNumbers = await listPhoneNumbers();
@@ -556,6 +556,40 @@ async function handleAISMSReply(
       .from("contacts")
       .update({ status: "appointment_booked", updated_at: now })
       .eq("id", contact.id);
+
+    // Send confirmation SMS with "Reply C to confirm"
+    if (newAppt) {
+      try {
+        const apptForSms = new Date(`${details.date}T${details.time}:00`);
+        const smsTimeStr = apptForSms.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: "America/Edmonton",
+        });
+        const smsDateStr = apptForSms.toLocaleDateString("en-CA", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          timeZone: "America/Edmonton",
+        });
+        const confirmSms =
+          `Hey ${contact.first_name}, your appointment is set for ${smsTimeStr} on ${smsDateStr} ` +
+          `at South Trail Nissan, 6603 130 Ave SE Calgary. ` +
+          `Reply C to confirm`;
+        await sendSMS(conversation.phone_number_id, contact.phone, confirmSms);
+
+        await supabase.from("sms_messages").insert({
+          conversation_id: conversation.id,
+          contact_id: contact.id,
+          direction: "outbound",
+          content: confirmSms,
+          sent_by: "ai",
+        });
+      } catch (confirmErr) {
+        console.error("Confirmation SMS failed:", confirmErr);
+      }
+    }
 
     // Send WhatsApp notification (inline to match existing pattern)
     try {
