@@ -444,6 +444,15 @@ async function handleAISMSReply(
     })
     .eq("id", conversation.id);
 
+  // Check timing rules: do not respond between 9PM and 8AM Calgary time
+  const calgaryNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" }));
+  const calgaryHour = calgaryNow.getHours();
+  if (calgaryHour >= 21 || calgaryHour < 8) {
+    // After hours. Store the message but do not reply until 8AM.
+    // The follow-up cron will pick these up.
+    return NextResponse.json({ status: "stored", reason: "after_hours", willReplyAt: "8AM MST" });
+  }
+
   // Load full conversation history
   const { data: messages } = await supabase
     .from("sms_messages")
