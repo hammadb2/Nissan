@@ -372,3 +372,56 @@ export interface PipelineStats {
   deals_closed_month: number;
   total_commission_month: number;
 }
+
+// SMS conversation types
+export type SMSConversationStatus =
+  | "awaiting_reply"
+  | "active"
+  | "booked"
+  | "flagged_hot"
+  | "no_reply"
+  | "ended"
+  | "recirculated";
+
+export interface SMSConversation {
+  id: string;
+  contact_id: string;
+  phone_number_id: string;
+  status: SMSConversationStatus;
+  trigger_call_id: string | null;
+  initial_sms_sent_at: string;
+  first_followup_sent_at: string | null;
+  second_followup_sent_at: string | null;
+  customer_replied_at: string | null;
+  appointment_id: string | null;
+  flagged_reason: string | null;
+  recirculate_after: string | null;
+  ai_extracted_info: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SMSMessage {
+  id: string;
+  conversation_id: string;
+  contact_id: string;
+  direction: "outbound" | "inbound";
+  content: string;
+  sent_by: "ai" | "human";
+  quo_message_id: string | null;
+  created_at: string;
+}
+
+export interface SMSConversationWithContact extends SMSConversation {
+  contacts: Contact | null;
+  sms_messages?: SMSMessage[];
+}
+
+export interface SMSStats {
+  active_conversations: number;
+  replies_today: number;
+  appointments_booked_by_ai: number;
+  flagged_for_human: number;
+  awaiting_reply: number;
+  total_sent_today: number;
+}

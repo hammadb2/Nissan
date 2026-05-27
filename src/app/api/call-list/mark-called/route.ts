@@ -49,12 +49,21 @@ export async function POST(req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("contact_id", contactId);
 
+    const contactUpdate: Record<string, unknown> = {
+      call_count: callCount ?? 1,
+      last_called_at: now,
+    };
+
+    // Wrong number cleanup — permanently remove from all lists
+    if (outcome === "wrong_number") {
+      contactUpdate.status = "closed";
+      contactUpdate.assigned_call_date = null;
+      contactUpdate.next_action = "no_action";
+    }
+
     await supabase
       .from("contacts")
-      .update({
-        call_count: callCount ?? 1,
-        last_called_at: now,
-      })
+      .update(contactUpdate)
       .eq("id", contactId);
 
     return NextResponse.json({

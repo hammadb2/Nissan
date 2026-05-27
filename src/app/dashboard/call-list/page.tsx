@@ -16,8 +16,9 @@ import {
   ChevronUp,
   RefreshCw,
   Edit3,
+  MessageSquare,
 } from "lucide-react";
-import type { Contact } from "@/lib/types";
+import type { Contact, SMSMessage } from "@/lib/types";
 
 interface CallListContact extends Contact {
   called_today: boolean;
@@ -43,6 +44,7 @@ const OUTCOME_OPTIONS = [
   { value: "voicemail", label: "Voicemail", color: "bg-gray-100 text-gray-700", icon: Phone },
   { value: "no_answer", label: "No Answer", color: "bg-gray-100 text-gray-700", icon: PhoneOff },
   { value: "not_interested", label: "Not Interested", color: "bg-red-100 text-red-800", icon: XCircle },
+  { value: "wrong_number", label: "Wrong Number", color: "bg-red-200 text-red-900", icon: XCircle },
 ];
 
 const OUTCOME_COLORS: Record<string, string> = Object.fromEntries(
@@ -64,6 +66,8 @@ export default function DailyCallListPage() {
   const [markNotes, setMarkNotes] = useState("");
   const [markOutcome, setMarkOutcome] = useState<string | null>(null);
   const [savingMark, setSavingMark] = useState(false);
+  const [smsHistory, setSmsHistory] = useState<Record<string, SMSMessage[]>>({});
+  const [loadingSms, setLoadingSms] = useState<string | null>(null);
 
   const fetchList = useCallback(async () => {
     const res = await fetch(`/api/call-list?showCalled=${showCalled}`);
@@ -318,6 +322,12 @@ export default function DailyCallListPage() {
                         CALLBACK
                       </span>
                     )}
+                    {smsHistory[contact.id] && smsHistory[contact.id].length > 0 && (
+                      <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <MessageSquare size={10} />
+                        SMS
+                      </span>
+                    )}
                     {contact.called_today && contact.today_outcome && (
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -521,6 +531,69 @@ export default function DailyCallListPage() {
                         })}
                       </div>
                     </div>
+                  )}
+
+                  {/* SMS Conversation History */}
+                  {smsHistory[contact.id] && smsHistory[contact.id].length > 0 && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-indigo-800 font-medium text-sm mb-2">
+                        <MessageSquare size={14} />
+                        AI Text Conversation ({smsHistory[contact.id].length} messages)
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {smsHistory[contact.id].map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={`text-xs p-2 rounded-lg ${
+                              msg.direction === "outbound"
+                                ? "bg-white text-gray-700 ml-4"
+                                : "bg-indigo-100 text-indigo-900 mr-4"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-0.5">
+                              <span className="font-medium">
+                                {msg.direction === "outbound" ? "Hammad (AI)" : "Customer"}
+                              </span>
+                              <span className="text-gray-400">
+                                {new Date(msg.created_at).toLocaleString("en-CA", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  timeZone: "America/Edmonton",
+                                })}
+                              </span>
+                            </div>
+                            <p>{msg.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!smsHistory[contact.id] && (
+                    <button
+                      onClick={async () => {
+                        setLoadingSms(contact.id);
+                        try {
+                          const res = await fetch(`/api/sms/history?contactId=${contact.id}`);
+                          if (res.ok) {
+                            const data = await res.json();
+                            setSmsHistory((prev) => ({ ...prev, [contact.id]: data.messages ?? [] }));
+                          }
+                        } catch { /* ignore */ }
+                        setLoadingSms(null);
+                      }}
+                      disabled={loadingSms === contact.id}
+                      className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800"
+                    >
+                      {loadingSms === contact.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <MessageSquare size={12} />
+                      )}
+                      Load SMS history
+                    </button>
                   )}
 
                   {/* Contact Details */}
