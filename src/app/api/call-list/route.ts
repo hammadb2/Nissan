@@ -9,8 +9,9 @@ const DAILY_LIMIT = 200;
  * GET /api/call-list — Returns today's call list (max 200/day).
  *
  * Assignment logic:
- * 1. Contacts assigned to previous days that were never called carry over.
- * 2. New contacts are assigned to fill up to 200 total for today.
+ * 1. Contacts assigned to previous days that were never called are returned
+ *    to the pool (assigned_call_date cleared).
+ * 2. 200 fresh untouched leads are pulled from the pool each day.
  * 3. Contacts are sorted: callbacks first, hot, warm, then rest.
  */
 export async function GET(req: NextRequest) {
@@ -23,25 +24,13 @@ export async function GET(req: NextRequest) {
   const todayISO = today.toISOString();
   const todayDate = todayISO.split("T")[0]; // YYYY-MM-DD
 
-  // --- Step 1: Get carryover contacts (assigned on a previous day, never called) ---
-  const { data: carryoverContacts } = await supabase
+  // --- Step 1: Return uncalled contacts from previous days to the pool ---
+  await supabase
     .from("contacts")
-    .select("id")
+    .update({ assigned_call_date: null })
     .eq("status", "active")
-    .not("assigned_call_date", "is", null)
     .lt("assigned_call_date", todayDate)
-    .eq("call_count", 0)
-    .order("assigned_call_date", { ascending: true });
-
-  const carryoverIds = (carryoverContacts ?? []).map((c) => c.id);
-
-  // Re-assign carryover contacts to today so they appear in today's list
-  if (carryoverIds.length > 0) {
-    await supabase
-      .from("contacts")
-      .update({ assigned_call_date: todayDate })
-      .in("id", carryoverIds);
-  }
+    .eq("call_count", 0);
 
   // --- Step 2: Count how many are already assigned to today ---
   const { count: assignedToday } = await supabase
