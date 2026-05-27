@@ -336,7 +336,7 @@ export default function AppointmentsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Time — {selectedDaySlots.dayName}, {selectedDate}
               </label>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {selectedDaySlots.slots.map((slot) => (
                   <button
                     key={slot.time}
@@ -592,7 +592,7 @@ function AppointmentCard({
             : "border-gray-200"
       }`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold">{appointment.customer_name}</span>
@@ -634,7 +634,7 @@ function AppointmentCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           {!isFinished && (
             <>
               <button

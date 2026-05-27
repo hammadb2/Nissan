@@ -141,7 +141,7 @@ export default function DannCommandCenter() {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <button
           onClick={() => setShowNewListing(true)}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
@@ -258,7 +258,7 @@ export default function DannCommandCenter() {
       {showNewListing && (
         <Modal onClose={() => setShowNewListing(false)} title="Add New Listing">
           <form onSubmit={handleNewListing} className="space-y-3">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input name="year" placeholder="Year" type="number" required className="input-field" />
               <input name="make" placeholder="Make" required className="input-field" />
               <input name="model" placeholder="Model" required className="input-field" />

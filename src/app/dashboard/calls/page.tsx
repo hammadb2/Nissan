@@ -328,24 +328,24 @@ export default function CallsPage() {
             {calls.length} calls loaded
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full sm:w-auto justify-center"
           >
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
             {syncing ? "Syncing..." : "Sync from Quo"}
           </button>
           {selectedCalls.size > 0 && (
-            <>
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => handleExport("xlsx", [...selectedCalls])}
                 disabled={exporting}
                 className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >
                 <Download size={16} />
-                Export {selectedCalls.size} as XLSX
+                <span className="hidden sm:inline">Export {selectedCalls.size} as</span> XLSX
               </button>
               <button
                 onClick={() => handleExport("json", [...selectedCalls])}
@@ -355,7 +355,7 @@ export default function CallsPage() {
                 <Download size={16} />
                 JSON
               </button>
-            </>
+            </div>
           )}
           <button
             onClick={() => handleExport("xlsx")}
@@ -363,7 +363,7 @@ export default function CallsPage() {
             className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
           >
             <Download size={16} />
-            Export All
+            <span className="hidden sm:inline">Export</span> All
           </button>
         </div>
       </div>
