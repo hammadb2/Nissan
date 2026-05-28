@@ -54,6 +54,16 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const images = draft.image_urls ?? [];
+      if ((!draft.price || draft.price <= 0) && images.length === 0) {
+        results.push({
+          listing_id: draft.id,
+          success: false,
+          error: "Skipped: no price and no images",
+        });
+        continue;
+      }
+
       const password = process.env.KIJIJI_SHARED_PASSWORD;
 
       if (!password) {
@@ -144,6 +154,14 @@ export async function POST(req: NextRequest) {
 
   if (listErr || !listing) {
     return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+  }
+
+  const singleImages = listing.image_urls ?? [];
+  if ((!listing.price || listing.price <= 0) && singleImages.length === 0) {
+    return NextResponse.json(
+      { error: "Cannot post: listing has no price and no images" },
+      { status: 400 }
+    );
   }
 
   const account = listing.kijiji_accounts;
