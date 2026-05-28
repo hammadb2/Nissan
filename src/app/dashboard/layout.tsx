@@ -19,6 +19,7 @@ import {
   FileText,
   Menu,
   X,
+  Globe,
 } from "lucide-react";
 
 type UserRole = "hammad" | "jea" | "dann";
@@ -35,6 +36,7 @@ const allNavItems = [
   { href: "/dashboard/calls", label: "Calls", icon: PhoneIncoming, roles: ["hammad"] },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users, roles: ["hammad"] },
   { href: "/dashboard/import", label: "Import", icon: Upload, roles: ["hammad"] },
+  { href: "/dashboard/kijiji", label: "Kijiji", icon: Globe, roles: ["hammad", "dann"] },
 ];
 
 function getCookie(name: string): string | null {

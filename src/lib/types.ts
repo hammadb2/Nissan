@@ -425,3 +425,96 @@ export interface SMSStats {
   awaiting_reply: number;
   total_sent_today: number;
 }
+
+// Kijiji multi-account listing types
+
+export interface KijijiAccount {
+  id: string;
+  employee_name: string;
+  employee_email: string;
+  status: "active" | "suspended" | "inactive";
+  listings_count: number;
+  max_listings: number;
+  last_posted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KijijiListing {
+  id: string;
+  account_id: string;
+  listing_id: string | null;
+  autotrader_title: string;
+  kijiji_title: string;
+  kijiji_description: string;
+  vehicle_year: number;
+  vehicle_make: string;
+  vehicle_model: string;
+  vehicle_trim: string | null;
+  mileage: number | null;
+  price: number | null;
+  fuel_type: string | null;
+  transmission: string | null;
+  drivetrain: string | null;
+  body_type: string | null;
+  colour: string | null;
+  features: string | null;
+  autotrader_url: string | null;
+  kijiji_status: "draft" | "posted" | "expired" | "removed" | "sold";
+  posted_at: string | null;
+  expires_at: string | null;
+  inquiry_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KijijiListingWithAccount extends KijijiListing {
+  kijiji_accounts: KijijiAccount | null;
+}
+
+export interface KijijiInquiry {
+  id: string;
+  kijiji_listing_id: string | null;
+  account_id: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  message: string | null;
+  source_email_subject: string | null;
+  replied: boolean;
+  replied_at: string | null;
+  reply_message: string | null;
+  contact_id: string | null;
+  appointment_id: string | null;
+  created_at: string;
+}
+
+export interface KijijiInquiryWithDetails extends KijijiInquiry {
+  kijiji_listings: KijijiListing | null;
+  kijiji_accounts: KijijiAccount | null;
+}
+
+export interface AutoTraderVehicle {
+  title: string;
+  year: number;
+  make: string;
+  model: string;
+  trim: string;
+  price: number | null;
+  mileage: number | null;
+  transmission: string | null;
+  fuel_type: string | null;
+  description: string;
+  features: string[];
+}
+
+export interface KijijiStats {
+  total_accounts: number;
+  active_accounts: number;
+  total_listings: number;
+  posted_listings: number;
+  draft_listings: number;
+  total_inquiries: number;
+  unreplied_inquiries: number;
+  inquiries_today: number;
+}
