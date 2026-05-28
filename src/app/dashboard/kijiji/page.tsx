@@ -275,29 +275,29 @@ export default function KijijiDashboard() {
       {/* ═══ Overview Tab ═══ */}
       {tab === "overview" && stats && (
         <div className="space-y-6">
-          {/* IP Location Warning */}
+          {/* IP Location Info */}
           <div className={`rounded-xl border p-4 flex items-center justify-between ${
             ipCheck === null
               ? "bg-gray-50 border-gray-200"
               : ipCheck.isCanadian
                 ? "bg-green-50 border-green-200"
-                : "bg-red-50 border-red-300"
+                : "bg-amber-50 border-amber-200"
           }`}>
             <div className="flex items-center gap-3">
               <MapPin size={18} className={
                 ipCheck === null ? "text-gray-400"
-                : ipCheck.isCanadian ? "text-green-600" : "text-red-600"
+                : ipCheck.isCanadian ? "text-green-600" : "text-amber-600"
               } />
               <div>
                 <p className="text-sm font-medium text-gray-900">
                   {ipCheck === null
-                    ? "Server IP Location — Check before posting"
+                    ? "Server IP Location"
                     : ipCheck.isCanadian
                       ? `Server IP is in Canada (${ipCheck.ip})`
-                      : `WARNING: Server IP is in ${ipCheck.country} (${ipCheck.ip}) — NOT Canada! Posting will be blocked.`
+                      : `Server IP is in ${ipCheck.country} (${ipCheck.ip}) — Kijiji API posts will use this IP`
                   }
                 </p>
-                <p className="text-xs text-gray-500">Kijiji bans accounts posting from non-Canadian IPs</p>
+                <p className="text-xs text-gray-500">Kijiji may flag accounts posting from non-Canadian IPs</p>
               </div>
             </div>
             <button
