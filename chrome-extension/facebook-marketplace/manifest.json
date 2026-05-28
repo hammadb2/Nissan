@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "South Trail FB Marketplace Automation",
+  "version": "1.0.0",
+  "description": "Automates Facebook Marketplace vehicle listings, inbox monitoring, and AI replies for South Trail Nissan CRM.",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "alarms",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://facebook.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.facebook.com/marketplace/create/vehicle*",
+        "https://www.facebook.com/marketplace/create/*"
+      ],
+      "js": [
+        "content-scripts/watermark-strip.js",
+        "content-scripts/shadow-ban-check.js",
+        "content-scripts/listing-poster.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/messages/*",
+        "https://www.facebook.com/messaging/*"
+      ],
+      "js": ["content-scripts/inbox-monitor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FB Marketplace Bot"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

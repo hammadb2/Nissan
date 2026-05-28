@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo {
+      width: 20px;
+      height: 20px;
+      background: #1877f2;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 12px;
+      color: white;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .status-label { font-size: 12px; color: #aaa; }
+    .status-value { font-size: 12px; font-weight: 600; }
+    .status-value.green { color: #4CAF50; }
+    .status-value.red { color: #F44336; }
+    .status-value.yellow { color: #FFC107; }
+    .toggle-btn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-btn.start {
+      background: #4CAF50;
+      color: white;
+    }
+    .toggle-btn.stop {
+      background: #F44336;
+      color: white;
+    }
+    .toggle-btn:hover { opacity: 0.9; }
+    .config-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #2a2a4a;
+    }
+    .config-section label {
+      display: block;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 4px;
+    }
+    .config-section input {
+      width: 100%;
+      padding: 6px 8px;
+      background: #2a2a4a;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .save-btn {
+      width: 100%;
+      padding: 8px;
+      background: #1877f2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .save-btn:hover { opacity: 0.9; }
+    .error-msg {
+      font-size: 11px;
+      color: #F44336;
+      margin-top: 8px;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1><span class="logo">FB</span> Marketplace Bot</h1>
+
+  <div class="status-row">
+    <span class="status-label">Status</span>
+    <span class="status-value" id="statusText">Loading...</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Posts Today</span>
+    <span class="status-value" id="postsToday">0 / 10</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Quiet Hours</span>
+    <span class="status-value" id="quietHours">--</span>
+  </div>
+
+  <button class="toggle-btn start" id="toggleBtn">Start Bot</button>
+
+  <div id="errorContainer"></div>
+
+  <div class="config-section">
+    <label>CRM Base URL</label>
+    <input type="text" id="crmUrl" placeholder="https://your-app.vercel.app" />
+    <button class="save-btn" id="saveBtn">Save Settings</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

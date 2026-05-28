@@ -555,3 +555,95 @@ export interface KijijiStats {
   unreplied_inquiries: number;
   inquiries_today: number;
 }
+
+// Facebook Marketplace types
+
+export type FacebookListingStatus =
+  | "queued"
+  | "generating"
+  | "ready"
+  | "posting"
+  | "posted"
+  | "failed"
+  | "sold"
+  | "updated";
+
+export interface FacebookListing {
+  id: string;
+  listing_id: string | null;
+  listing_id_fb: string | null;
+  vehicle_year: number;
+  vehicle_make: string;
+  vehicle_model: string;
+  vehicle_trim: string | null;
+  mileage: number | null;
+  price: number | null;
+  colour: string | null;
+  transmission: string | null;
+  fuel_type: string | null;
+  features: string | null;
+  description: string | null;
+  image_urls: string[] | null;
+  fb_listing_url: string | null;
+  status: FacebookListingStatus;
+  compliance_passed: boolean;
+  posted_at: string | null;
+  updated_on_fb_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type FacebookConversationStatus =
+  | "active"
+  | "replied"
+  | "booked"
+  | "cold"
+  | "needs_human";
+
+export interface FacebookConversation {
+  id: string;
+  fb_conversation_id: string;
+  buyer_name: string | null;
+  buyer_profile_url: string | null;
+  buyer_profile_info: Record<string, unknown> | null;
+  listing_id: string | null;
+  last_message_at: string | null;
+  status: FacebookConversationStatus;
+  contact_id: string | null;
+  appointment_id: string | null;
+  message_count: number;
+  ai_sequence_step: number;
+  extracted_phone: string | null;
+  extracted_budget: string | null;
+  extracted_trade_in: boolean | null;
+  extracted_timeline: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FacebookMessage {
+  id: string;
+  conversation_id: string;
+  direction: "inbound" | "outbound";
+  message_body: string;
+  sent_at: string;
+  sent_by: "ai" | "human";
+  fb_message_id: string | null;
+  created_at: string;
+}
+
+export interface FacebookAlert {
+  id: string;
+  alert_type: "warning_popup" | "restriction" | "shadow_ban" | "posting_error" | "rate_limit";
+  message: string;
+  listing_id: string | null;
+  resolved: boolean;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface FacebookConversationWithMessages extends FacebookConversation {
+  facebook_messages?: FacebookMessage[];
+  facebook_listings?: FacebookListing | null;
+}
