@@ -9,12 +9,19 @@ const MINGLE_BASE = "https://mingle.kijiji.ca/api";
 
 const COMMON_HEADERS: Record<string, string> = {
   accept: "*/*",
-  "x-ecg-ver": "1.67",
+  "x-ecg-ver": "3.6",
   "x-ecg-ab-test-group": "",
   "accept-language": "en-CA",
   "accept-encoding": "gzip",
-  "user-agent": "Kijiji 17.4.0 (iPhone; iOS 17.4; en_CA)",
+  "user-agent": "com.ebay.kijiji.ca 17.7.0 (LGE Nexus 5; Android 6.0.1; en_US)",
 };
+
+const KIJIJI_IMAGE_UPLOAD = "https://mobile-api.kijiji.ca/v1/images/upload";
+
+// Calgary geo coordinates
+const CALGARY_LAT = "51.0447";
+const CALGARY_LNG = "-114.0719";
+const DEALERSHIP_PHONE = process.env.DEALERSHIP_PHONE || "";
 
 // Calgary location ID on Kijiji
 const CALGARY_LOCATION_ID = "1700199";
@@ -36,6 +43,7 @@ export interface KijijiAdPayload {
   postalCode?: string;
   address?: string;
   attributes?: KijijiAdAttribute[];
+  imageUrls?: string[];
 }
 
 export interface KijijiAdAttribute {
@@ -63,7 +71,7 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function buildAdXml(payload: KijijiAdPayload, email: string): string {
+function buildAdXml(payload: KijijiAdPayload, email: string, userId?: string): string {
   const categoryId = payload.categoryId || CARS_TRUCKS_CATEGORY_ID;
   const locationId = payload.locationId || CALGARY_LOCATION_ID;
   const postalCode = payload.postalCode || "T2Z5E1";
@@ -105,6 +113,32 @@ function buildAdXml(payload: KijijiAdPayload, email: string): string {
     </attr:attributes>`;
   }
 
+  // Build picture XML from uploaded image URLs
+  let picturesXml = "";
+  if (payload.imageUrls && payload.imageUrls.length > 0) {
+    const picEntries = payload.imageUrls
+      .map(
+        (url) => `
+      <pic:picture>
+        <pic:link rel="extraLarge" href="${escapeXml(url)}?rule=kijijica-800-jpg" />
+        <pic:link rel="large" href="${escapeXml(url)}?rule=kijijica-500-jpg" />
+        <pic:link rel="normal" href="${escapeXml(url)}?rule=kijijica-400-jpg" />
+        <pic:link rel="thumbnail" href="${escapeXml(url)}?rule=kijijica-64-jpg" />
+      </pic:picture>`
+      )
+      .join("");
+    picturesXml = `<pic:pictures>${picEntries}
+    </pic:pictures>`;
+  }
+
+  const phoneXml = DEALERSHIP_PHONE
+    ? `<ad:phone>${escapeXml(DEALERSHIP_PHONE)}</ad:phone>`
+    : "";
+
+  const accountIdXml = userId
+    ? `<ad:account-id>${escapeXml(userId)}</ad:account-id>`
+    : "";
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ad:ad xmlns:types="http://www.ebayclassifiedsgroup.com/schema/types/v1"
        xmlns:cat="http://www.ebayclassifiedsgroup.com/schema/category/v1"
@@ -119,6 +153,9 @@ function buildAdXml(payload: KijijiAdPayload, email: string): string {
     <ad:title>${escapeXml(payload.title)}</ad:title>
     <ad:description>${escapeXml(payload.description)}</ad:description>
     <ad:email>${escapeXml(email)}</ad:email>
+    <ad:poster-contact-email>${escapeXml(email)}</ad:poster-contact-email>
+    ${accountIdXml}
+    ${phoneXml}
     <ad:ad-type>
       <ad:value>OFFER</ad:value>
     </ad:ad-type>
@@ -127,11 +164,16 @@ function buildAdXml(payload: KijijiAdPayload, email: string): string {
       <loc:location id="${locationId}" />
     </loc:locations>
     <ad:ad-address>
+      <types:radius>400</types:radius>
+      <types:latitude>${CALGARY_LAT}</types:latitude>
+      <types:longitude>${CALGARY_LNG}</types:longitude>
       <types:zip-code>${escapeXml(postalCode)}</types:zip-code>
       <types:full-address>${escapeXml(address)}</types:full-address>
     </ad:ad-address>
+    <ad:visible-on-map>true</ad:visible-on-map>
     ${priceXml}
     ${attributesXml}
+    ${picturesXml}
 </ad:ad>`;
 }
 
@@ -190,6 +232,83 @@ export async function kijijiLogin(
 }
 
 /**
+ * Upload an image to Kijiji's mobile image API.
+ * Returns the base image URL (without size query params).
+ */
+export async function kijijiUploadImage(
+  session: KijijiSession,
+  imageUrl: string
+): Promise<string> {
+  // Download the image from source URL
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) {
+    throw new Error(`Failed to download image from ${imageUrl}: ${imgRes.status}`);
+  }
+  const imgBuffer = await imgRes.arrayBuffer();
+  const imgBytes = new Uint8Array(imgBuffer);
+
+  // Determine content type
+  const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+  const ext = contentType.includes("png") ? "png" : "jpg";
+  const filename = `vehicle_${Date.now()}.${ext}`;
+
+  // Expiration: ~200 days from now (matches Kijiji app behavior)
+  const expiration = Math.floor(Date.now() / 1000) + 200 * 24 * 60 * 60;
+
+  // Build multipart form data
+  const formData = new FormData();
+  formData.append("bucketAlias", "ca-prod-fsbo-ads");
+  formData.append("objectExpiration", expiration.toString());
+  formData.append("file", new Blob([imgBytes], { type: contentType }), filename);
+
+  const res = await fetch(KIJIJI_IMAGE_UPLOAD, {
+    method: "POST",
+    headers: {
+      ...COMMON_HEADERS,
+      accept: "application/json",
+      "x-ecg-platform": "android",
+      "x-ecg-app-version": "17.7.0",
+      "x-ecg-authorization-user": authHeader(session),
+    },
+    body: formData,
+  });
+
+  if (res.status !== 201) {
+    const text = await res.text();
+    throw new Error(`Kijiji image upload failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json();
+  let url = data.url as string;
+
+  // Strip query params to get base URL
+  const qIdx = url.indexOf("?");
+  if (qIdx !== -1) url = url.substring(0, qIdx);
+
+  return url;
+}
+
+/**
+ * Upload multiple images to Kijiji, returning their base URLs.
+ * Skips images that fail to upload.
+ */
+export async function kijijiUploadImages(
+  session: KijijiSession,
+  sourceUrls: string[]
+): Promise<string[]> {
+  const uploaded: string[] = [];
+  for (const srcUrl of sourceUrls.slice(0, 10)) {
+    try {
+      const kijijiUrl = await kijijiUploadImage(session, srcUrl);
+      uploaded.push(kijijiUrl);
+    } catch {
+      // Skip failed uploads
+    }
+  }
+  return uploaded;
+}
+
+/**
  * Post a new ad on Kijiji.
  */
 export async function kijijiPostAd(
@@ -197,7 +316,7 @@ export async function kijijiPostAd(
   payload: KijijiAdPayload
 ): Promise<KijijiPostedAd> {
   const url = `${MINGLE_BASE}/users/${session.userId}/ads`;
-  const xmlBody = buildAdXml(payload, session.email);
+  const xmlBody = buildAdXml(payload, session.email, session.userId);
 
   const res = await fetch(url, {
     method: "POST",
@@ -222,6 +341,35 @@ export async function kijijiPostAd(
     title: payload.title,
     status: "posted",
   };
+}
+
+/**
+ * Edit/update an existing ad on Kijiji (PUT).
+ */
+export async function kijijiEditAd(
+  session: KijijiSession,
+  adId: string,
+  payload: KijijiAdPayload
+): Promise<boolean> {
+  const url = `${MINGLE_BASE}/users/${session.userId}/ads/${adId}`;
+  const xmlBody = buildAdXml(payload, session.email, session.userId);
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      ...COMMON_HEADERS,
+      "content-type": "application/xml",
+      "x-ecg-authorization-user": authHeader(session),
+    },
+    body: xmlBody,
+  });
+
+  if (res.status !== 200) {
+    const text = await res.text();
+    throw new Error(`Kijiji edit ad failed (${res.status}): ${text}`);
+  }
+
+  return true;
 }
 
 /**
@@ -440,6 +588,12 @@ export function buildVehicleAttributes(vehicle: {
     { name: "caryear", value: vehicle.year.toString() },
   ];
 
+  if (vehicle.make) {
+    attrs.push({ name: "carmake", value: vehicle.make });
+  }
+  if (vehicle.model) {
+    attrs.push({ name: "carmodel", value: vehicle.model });
+  }
   if (vehicle.mileage) {
     attrs.push({
       name: "carmileageinkms",
@@ -447,24 +601,70 @@ export function buildVehicleAttributes(vehicle: {
     });
   }
   if (vehicle.transmission) {
+    const transMap: Record<string, string> = {
+      automatic: "2",
+      manual: "1",
+      cvt: "3",
+      other: "4",
+    };
     attrs.push({
       name: "cartransmission",
-      value: vehicle.transmission.toLowerCase() === "automatic" ? "2" : "1",
+      value: transMap[vehicle.transmission.toLowerCase()] ?? "2",
       localeValue: vehicle.transmission,
     });
   }
   if (vehicle.fuel_type) {
     const fuelMap: Record<string, string> = {
       gas: "1",
+      gasoline: "1",
       diesel: "2",
       electric: "3",
       hybrid: "4",
+      "plug-in hybrid": "4",
       "flex fuel": "5",
     };
     attrs.push({
       name: "carfueltype",
       value: fuelMap[vehicle.fuel_type.toLowerCase()] ?? "1",
       localeValue: vehicle.fuel_type,
+    });
+  }
+  if (vehicle.drivetrain) {
+    const driveMap: Record<string, string> = {
+      "4x4": "1",
+      "4wd": "1",
+      "all-wheel drive": "2",
+      awd: "2",
+      "front-wheel drive": "3",
+      fwd: "3",
+      "rear-wheel drive": "4",
+      rwd: "4",
+    };
+    attrs.push({
+      name: "cardrivetrain",
+      value: driveMap[vehicle.drivetrain.toLowerCase()] ?? "2",
+      localeValue: vehicle.drivetrain,
+    });
+  }
+  if (vehicle.body_type) {
+    const bodyMap: Record<string, string> = {
+      sedan: "1",
+      coupe: "2",
+      hatchback: "3",
+      suv: "4",
+      "crossover": "4",
+      truck: "5",
+      "pickup truck": "5",
+      van: "6",
+      minivan: "7",
+      convertible: "8",
+      wagon: "9",
+      other: "10",
+    };
+    attrs.push({
+      name: "carbodytype",
+      value: bodyMap[vehicle.body_type.toLowerCase()] ?? "10",
+      localeValue: vehicle.body_type,
     });
   }
   if (vehicle.colour) {

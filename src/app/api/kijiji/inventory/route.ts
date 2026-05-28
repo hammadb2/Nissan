@@ -4,6 +4,8 @@ import {
   kijijiLogin,
   kijijiDeleteAd,
   kijijiPostAd,
+  kijijiEditAd,
+  kijijiUploadImages,
   buildVehicleAttributes,
 } from "@/lib/kijiji-api";
 import {
@@ -233,9 +235,6 @@ export async function POST(req: NextRequest) {
               sessionCache.set(account.employee_email, session);
             }
 
-            // Delete old ad
-            await kijijiDeleteAd(session, existingRow.kijiji_ad_id);
-
             // Generate fresh description
             const merged = { ...existingRow, ...updates };
             const uniqueDesc = generateUniqueDescription(merged);
@@ -247,20 +246,39 @@ export async function POST(req: NextRequest) {
               mileage: (merged.mileage as number | null) ?? existingRow.mileage,
               transmission: (merged.transmission as string | null) ?? existingRow.transmission,
               fuel_type: (merged.fuel_type as string | null) ?? existingRow.fuel_type,
+              drivetrain: (merged.drivetrain as string | null) ?? existingRow.drivetrain,
+              body_type: (merged.body_type as string | null) ?? existingRow.body_type,
               colour: (merged.colour as string | null) ?? existingRow.colour,
             });
 
-            const posted = await kijijiPostAd(session, {
+            // Upload images to Kijiji
+            const mergedImages = (merged.image_urls as string[] | null) ?? [];
+            let kijijiImageUrls: string[] = [];
+            if (mergedImages.length > 0) {
+              kijijiImageUrls = await kijijiUploadImages(session, mergedImages);
+            }
+
+            const adPayload = {
               title: (merged.kijiji_title as string) ?? existingRow.kijiji_title,
               description: uniqueDesc,
               price: (merged.price as number | null) ?? existingRow.price,
               attributes: attrs,
-            });
+              imageUrls: kijijiImageUrls,
+            };
 
-            updates.kijiji_ad_id = posted.adId;
-            updates.kijiji_description = uniqueDesc;
-            updates.posted_at = new Date().toISOString();
-            updates.expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+            // Try editing the existing ad first; fall back to delete + repost
+            try {
+              await kijijiEditAd(session, existingRow.kijiji_ad_id, adPayload);
+              updates.kijiji_description = uniqueDesc;
+            } catch {
+              // Edit failed — delete old ad and repost
+              await kijijiDeleteAd(session, existingRow.kijiji_ad_id);
+              const posted = await kijijiPostAd(session, adPayload);
+              updates.kijiji_ad_id = posted.adId;
+              updates.kijiji_description = uniqueDesc;
+              updates.posted_at = new Date().toISOString();
+              updates.expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+            }
 
             results.reposted++;
             repostCount++;
