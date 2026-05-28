@@ -460,6 +460,7 @@ export interface KijijiListing {
   colour: string | null;
   features: string | null;
   autotrader_url: string | null;
+  kijiji_ad_id: string | null;
   kijiji_status: "draft" | "posted" | "expired" | "removed" | "sold";
   posted_at: string | null;
   expires_at: string | null;
@@ -481,6 +482,9 @@ export interface KijijiInquiry {
   customer_phone: string | null;
   message: string | null;
   source_email_subject: string | null;
+  kijiji_ad_id: string | null;
+  kijiji_conversation_id: string | null;
+  reply_method: "kijiji" | "email" | null;
   replied: boolean;
   replied_at: string | null;
   reply_message: string | null;

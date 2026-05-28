@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { kijijiLogin, kijijiSendReply } from "@/lib/kijiji-api";
 
 export const dynamic = "force-dynamic";
 
@@ -104,12 +105,73 @@ export async function POST(req: NextRequest) {
   const { id, reply_message } = body;
 
   if (id && reply_message) {
+    const { data: inquiry, error: fetchErr } = await supabase
+      .from("kijiji_inquiries")
+      .select("*, kijiji_listings(*, kijiji_accounts(*))")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !inquiry) {
+      return NextResponse.json({ error: "Inquiry not found" }, { status: 404 });
+    }
+
+    let replyMethod: "kijiji" | "email" = "email";
+    let kijijiReplyError: string | null = null;
+
+    const listing = inquiry.kijiji_listings;
+    const account = listing?.kijiji_accounts;
+
+    if (account && listing?.kijiji_ad_id) {
+      const pwKey = `KIJIJI_PW_${account.employee_email.split("@")[0].replace(/\./g, "_").toUpperCase()}`;
+      const password = process.env[pwKey];
+
+      if (password) {
+        try {
+          const session = await kijijiLogin(account.employee_email, password);
+          await kijijiSendReply(session, {
+            adId: listing.kijiji_ad_id,
+            replyName: account.employee_name,
+            message: reply_message,
+            conversationId: inquiry.kijiji_conversation_id ?? undefined,
+          });
+          replyMethod = "kijiji";
+        } catch (err) {
+          kijijiReplyError = err instanceof Error ? err.message : "Kijiji reply failed";
+        }
+      }
+    }
+
+    if (replyMethod === "email" && inquiry.customer_email && account) {
+      const resendKey = process.env.RESEND_API_KEY;
+      if (resendKey) {
+        try {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${resendKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: `${account.employee_name} <${account.employee_email}>`,
+              to: [inquiry.customer_email],
+              subject: `Re: ${listing?.kijiji_title ?? "Your Kijiji Inquiry"}`,
+              text: reply_message,
+            }),
+          });
+          replyMethod = "email";
+        } catch {
+          // email send failed, still save the reply
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from("kijiji_inquiries")
       .update({
         replied: true,
         replied_at: new Date().toISOString(),
         reply_message,
+        reply_method: replyMethod,
       })
       .eq("id", id)
       .select()
@@ -119,7 +181,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json({
+      ...data,
+      reply_sent_via: replyMethod,
+      kijiji_reply_error: kijijiReplyError,
+    });
   }
 
   return NextResponse.json({ error: "Invalid request" }, { status: 400 });

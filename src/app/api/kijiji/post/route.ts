@@ -81,9 +81,9 @@ export async function POST(req: NextRequest) {
           .from("kijiji_listings")
           .update({
             kijiji_status: "posted",
+            kijiji_ad_id: posted.adId,
             posted_at: new Date().toISOString(),
             expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            autotrader_url: posted.adId,
             updated_at: new Date().toISOString(),
           })
           .eq("id", draft.id);
@@ -163,9 +163,9 @@ export async function POST(req: NextRequest) {
       .from("kijiji_listings")
       .update({
         kijiji_status: "posted",
+        kijiji_ad_id: posted.adId,
         posted_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        autotrader_url: posted.adId,
         updated_at: new Date().toISOString(),
       })
       .eq("id", listing_id);

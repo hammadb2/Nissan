@@ -552,7 +552,9 @@ export default function KijijiDashboard() {
 
                   {inquiry.replied ? (
                     <div className="mt-2 text-sm text-green-700 bg-green-50 rounded-lg p-3">
-                      <p className="text-xs text-green-500 mb-1">Replied:</p>
+                      <p className="text-xs text-green-500 mb-1">
+                        Replied via {inquiry.reply_method === "kijiji" ? "Kijiji messaging" : "email"}:
+                      </p>
                       {inquiry.reply_message}
                     </div>
                   ) : (

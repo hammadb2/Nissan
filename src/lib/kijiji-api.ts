@@ -281,6 +281,147 @@ export async function kijijiListAds(
   return ads;
 }
 
+export interface KijijiConversation {
+  conversationId: string;
+  adId: string;
+  adTitle: string;
+  buyerName: string;
+  buyerEmail: string;
+  lastMessage: string;
+  unread: boolean;
+}
+
+/**
+ * List conversations (inquiries) for the logged-in user.
+ */
+export async function kijijiGetConversations(
+  session: KijijiSession,
+  page = 0
+): Promise<KijijiConversation[]> {
+  const url = `${MINGLE_BASE}/users/${session.userId}/conversations?size=25&page=${page}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      ...COMMON_HEADERS,
+      "x-ecg-authorization-user": authHeader(session),
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Kijiji get conversations failed (${res.status})`);
+  }
+
+  const xml = await res.text();
+  const conversations: KijijiConversation[] = [];
+
+  const blocks = xml.split(/<user:user-conversation\s/g);
+  for (const block of blocks.slice(1)) {
+    const conversationId = block.match(/id="([^"]+)"/)?.[1] ?? "";
+    const adId = extractXmlValue(block, "user:ad-id") ?? "";
+    const adTitle = extractXmlValue(block, "user:ad-title") ?? "";
+    const buyerName = extractXmlValue(block, "user:display-name") ?? "";
+    const buyerEmail = extractXmlValue(block, "user:email") ?? "";
+    const lastMessage = extractXmlValue(block, "user:text-short-trimmed") ?? "";
+    const unread = extractXmlValue(block, "user:unread") === "true";
+
+    if (conversationId) {
+      conversations.push({
+        conversationId,
+        adId,
+        adTitle,
+        buyerName,
+        buyerEmail,
+        lastMessage,
+        unread,
+      });
+    }
+  }
+
+  return conversations;
+}
+
+/**
+ * Build reply XML payload for Kijiji conversation.
+ */
+function buildReplyXml(params: {
+  adId: string;
+  replyName: string;
+  replyEmail: string;
+  message: string;
+  conversationId?: string;
+  direction?: "TO_BUYER" | "TO_OWNER";
+}): string {
+  const direction = params.direction ?? "TO_BUYER";
+  const convIdXml = params.conversationId
+    ? `<reply:conversation-id>${escapeXml(params.conversationId)}</reply:conversation-id>`
+    : `<reply:structured-msg-id>1</reply:structured-msg-id>`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<reply:reply-to-ad-conversation
+    xmlns:types="http://www.ebayclassifiedsgroup.com/schema/types/v1"
+    xmlns:cat="http://www.ebayclassifiedsgroup.com/schema/category/v1"
+    xmlns:loc="http://www.ebayclassifiedsgroup.com/schema/location/v1"
+    xmlns:ad="http://www.ebayclassifiedsgroup.com/schema/ad/v1"
+    xmlns:attr="http://www.ebayclassifiedsgroup.com/schema/attribute/v1"
+    xmlns:pic="http://www.ebayclassifiedsgroup.com/schema/picture/v1"
+    xmlns:user="http://www.ebayclassifiedsgroup.com/schema/user/v1"
+    xmlns:rate="http://www.ebayclassifiedsgroup.com/schema/rate/v1"
+    xmlns:reply="http://www.ebayclassifiedsgroup.com/schema/reply/v1"
+    locale="en-CA">
+    <reply:ad-id>${escapeXml(params.adId)}</reply:ad-id>
+    <reply:reply-username>${escapeXml(params.replyName)}</reply:reply-username>
+    <reply:reply-phone />
+    <reply:reply-email>${escapeXml(params.replyEmail)}</reply:reply-email>
+    <reply:reply-message>${escapeXml(params.message)}</reply:reply-message>
+    ${convIdXml}
+    <reply:reply-direction>
+      <types:value>${direction}</types:value>
+    </reply:reply-direction>
+</reply:reply-to-ad-conversation>`;
+}
+
+/**
+ * Send a reply to a Kijiji conversation.
+ */
+export async function kijijiSendReply(
+  session: KijijiSession,
+  params: {
+    adId: string;
+    replyName: string;
+    message: string;
+    conversationId?: string;
+  }
+): Promise<boolean> {
+  const url = `${MINGLE_BASE}/replies/reply-to-ad-conversation`;
+
+  const xmlBody = buildReplyXml({
+    adId: params.adId,
+    replyName: params.replyName,
+    replyEmail: session.email,
+    message: params.message,
+    conversationId: params.conversationId,
+    direction: "TO_BUYER",
+  });
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...COMMON_HEADERS,
+      "content-type": "application/xml",
+      "x-ecg-authorization-user": authHeader(session),
+    },
+    body: xmlBody,
+  });
+
+  if (res.status !== 201) {
+    const text = await res.text();
+    throw new Error(`Kijiji reply failed (${res.status}): ${text}`);
+  }
+
+  return true;
+}
+
 /**
  * Build Kijiji ad attributes for a vehicle listing.
  */
