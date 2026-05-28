@@ -10,19 +10,24 @@ import {
   Plus,
   Copy,
   CheckCircle,
-
   ChevronDown,
   ChevronUp,
   ExternalLink,
   Mail,
   Car,
+  Image as ImageIcon,
+  Shield,
+  MapPin,
+  Phone,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type {
   KijijiAccount,
   KijijiListingWithAccount,
   KijijiInquiryWithDetails,
   KijijiStats,
-  AutoTraderVehicle,
 } from "@/lib/types";
 
 type Tab = "overview" | "inventory" | "listings" | "inquiries" | "accounts";
@@ -33,12 +38,33 @@ export default function KijijiDashboard() {
   const [accounts, setAccounts] = useState<KijijiAccount[]>([]);
   const [listings, setListings] = useState<KijijiListingWithAccount[]>([]);
   const [inquiries, setInquiries] = useState<KijijiInquiryWithDetails[]>([]);
-  const [inventory, setInventory] = useState<(AutoTraderVehicle & { kijiji_title: string; kijiji_description: string })[]>([]);
+  const [inventory, setInventory] = useState<KijijiListingWithAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedListing, setExpandedListing] = useState<string | null>(null);
+  const [expandedInventory, setExpandedInventory] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [imageIndices, setImageIndices] = useState<Record<string, number>>({});
+  const [inventoryFilter, setInventoryFilter] = useState<"all" | "draft" | "posted" | "sold">("all");
+  const [ipCheck, setIpCheck] = useState<{ isCanadian: boolean; country: string; ip: string } | null>(null);
+  const [ipLoading, setIpLoading] = useState(false);
+
+  const checkIp = useCallback(async () => {
+    setIpLoading(true);
+    try {
+      const res = await fetch("/api/kijiji/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ check_ip: true }),
+      });
+      const data = await res.json();
+      setIpCheck(data);
+    } catch {
+      setIpCheck({ isCanadian: false, country: "error", ip: "unknown" });
+    }
+    setIpLoading(false);
+  }, []);
 
   const fetchStats = useCallback(async () => {
     const res = await fetch("/api/kijiji/stats");
@@ -161,6 +187,14 @@ export default function KijijiDashboard() {
     setTimeout(() => setCopiedId(null), 2000);
   }
 
+  function nextImage(id: string, total: number) {
+    setImageIndices((prev) => ({ ...prev, [id]: ((prev[id] ?? 0) + 1) % total }));
+  }
+
+  function prevImage(id: string, total: number) {
+    setImageIndices((prev) => ({ ...prev, [id]: ((prev[id] ?? 0) - 1 + total) % total }));
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -171,11 +205,15 @@ export default function KijijiDashboard() {
 
   const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
     { id: "overview", label: "Overview", icon: Package },
-    { id: "inventory", label: "AutoTrader Inventory", icon: Car },
+    { id: "inventory", label: "Inventory", icon: Car },
     { id: "listings", label: "Kijiji Listings", icon: ExternalLink },
     { id: "inquiries", label: "Inquiries", icon: MessageSquare },
     { id: "accounts", label: "Accounts", icon: Users },
   ];
+
+  const filteredInventory = inventoryFilter === "all"
+    ? inventory
+    : inventory.filter((v) => v.kijiji_status === inventoryFilter);
 
   return (
     <div className="space-y-6">
@@ -198,7 +236,7 @@ export default function KijijiDashboard() {
             className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             <RefreshCw size={14} className={actionLoading === "assign" ? "animate-spin" : ""} />
-            {actionLoading === "assign" ? "Assigning..." : "Auto-Assign Inventory"}
+            {actionLoading === "assign" ? "Assigning..." : "Auto-Assign"}
           </button>
           <button
             onClick={postAllDrafts}
@@ -211,7 +249,6 @@ export default function KijijiDashboard() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -235,9 +272,43 @@ export default function KijijiDashboard() {
         })}
       </div>
 
-      {/* Overview Tab */}
+      {/* ═══ Overview Tab ═══ */}
       {tab === "overview" && stats && (
         <div className="space-y-6">
+          {/* IP Location Warning */}
+          <div className={`rounded-xl border p-4 flex items-center justify-between ${
+            ipCheck === null
+              ? "bg-gray-50 border-gray-200"
+              : ipCheck.isCanadian
+                ? "bg-green-50 border-green-200"
+                : "bg-red-50 border-red-300"
+          }`}>
+            <div className="flex items-center gap-3">
+              <MapPin size={18} className={
+                ipCheck === null ? "text-gray-400"
+                : ipCheck.isCanadian ? "text-green-600" : "text-red-600"
+              } />
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {ipCheck === null
+                    ? "Server IP Location — Check before posting"
+                    : ipCheck.isCanadian
+                      ? `Server IP is in Canada (${ipCheck.ip})`
+                      : `WARNING: Server IP is in ${ipCheck.country} (${ipCheck.ip}) — NOT Canada! Posting will be blocked.`
+                  }
+                </p>
+                <p className="text-xs text-gray-500">Kijiji bans accounts posting from non-Canadian IPs</p>
+              </div>
+            </div>
+            <button
+              onClick={checkIp}
+              disabled={ipLoading}
+              className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {ipLoading ? "Checking..." : "Check IP"}
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <StatCard label="Accounts" value={stats.active_accounts} sub={`${stats.total_accounts} total`} color="purple" />
             <StatCard label="Posted" value={stats.posted_listings} sub={`${stats.draft_listings} drafts`} color="green" />
@@ -290,9 +361,7 @@ export default function KijijiDashboard() {
                   </div>
                 ))}
                 {accounts.length > 15 && (
-                  <p className="text-xs text-gray-400 pt-1">
-                    + {accounts.length - 15} more accounts
-                  </p>
+                  <p className="text-xs text-gray-400 pt-1">+ {accounts.length - 15} more accounts</p>
                 )}
               </div>
             </div>
@@ -300,13 +369,28 @@ export default function KijijiDashboard() {
         </div>
       )}
 
-      {/* Inventory Tab */}
+      {/* ═══ Inventory Tab ═══ */}
       {tab === "inventory" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">
-              {inventory.length} vehicles from AutoTrader (South Trail Nissan)
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-500">{filteredInventory.length} vehicles</p>
+              <div className="flex gap-1">
+                {(["all", "draft", "posted", "sold"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setInventoryFilter(f)}
+                    className={`px-2.5 py-1 rounded text-xs font-medium ${
+                      inventoryFilter === f
+                        ? "bg-purple-100 text-purple-700"
+                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                    }`}
+                  >
+                    {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button
               onClick={fetchInventory}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
@@ -317,56 +401,257 @@ export default function KijijiDashboard() {
           </div>
 
           <div className="grid gap-3">
-            {inventory.map((v, idx) => (
-              <div key={idx} className="bg-white rounded-xl border border-gray-200 p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{v.title}</h3>
-                    <div className="flex gap-3 mt-1 text-sm text-gray-500">
-                      {v.price && <span>${v.price.toLocaleString()}</span>}
-                      {v.mileage && <span>{v.mileage.toLocaleString()} km</span>}
-                      {v.transmission && <span>{v.transmission}</span>}
-                      {v.fuel_type && <span>{v.fuel_type}</span>}
+            {filteredInventory.map((v) => {
+              const images = v.image_urls ?? [];
+              const imgIdx = imageIndices[v.id] ?? 0;
+              const isExpanded = expandedInventory === v.id;
+
+              return (
+                <div key={v.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="flex">
+                    {/* Image thumbnail */}
+                    {images.length > 0 && (
+                      <div className="relative w-48 h-36 shrink-0 bg-gray-100">
+                        <img
+                          src={images[imgIdx]}
+                          alt={v.kijiji_title}
+                          className="w-full h-full object-cover"
+                        />
+                        {images.length > 1 && (
+                          <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
+                            <ImageIcon size={10} className="inline mr-0.5" />
+                            {images.length}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Info */}
+                    <div
+                      className="flex-1 p-4 cursor-pointer hover:bg-gray-50"
+                      onClick={() => setExpandedInventory(isExpanded ? null : v.id)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-gray-900">{v.kijiji_title}</h3>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              v.kijiji_status === "posted" ? "bg-green-100 text-green-700"
+                              : v.kijiji_status === "draft" ? "bg-gray-100 text-gray-700"
+                              : v.kijiji_status === "sold" ? "bg-blue-100 text-blue-700"
+                              : "bg-red-100 text-red-700"
+                            }`}>
+                              {v.kijiji_status}
+                            </span>
+                            {v.price_evaluation && (
+                              <span className="px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700">
+                                {v.price_evaluation}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-sm text-gray-500">
+                            {v.price != null && (
+                              <span className="font-semibold text-gray-900">
+                                ${Number(v.price).toLocaleString()}
+                                {v.old_price != null && v.old_price !== v.price && (
+                                  <span className="ml-1 text-xs text-red-400 line-through">
+                                    ${Number(v.old_price).toLocaleString()}
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                            {v.mileage != null && <span>{Number(v.mileage).toLocaleString()} km</span>}
+                            {v.transmission && <span>{v.transmission}</span>}
+                            {v.drivetrain && <span>{v.drivetrain}</span>}
+                            {v.fuel_type && <span>{v.fuel_type}</span>}
+                            {v.engine && <span>{v.engine}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 mt-1 text-xs text-gray-400">
+                            {v.vin && <span>VIN: {v.vin}</span>}
+                            {v.stock_number && <span>Stock: {v.stock_number}</span>}
+                            {v.exterior_colour && <span>{v.exterior_colour}</span>}
+                            {v.location_city && <span><MapPin size={10} className="inline" /> {v.location_city}, {v.location_province}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {v.carfax_url && (
+                            <a
+                              href={v.carfax_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs hover:bg-blue-100"
+                            >
+                              <Shield size={10} />
+                              CarFax
+                            </a>
+                          )}
+                          {v.had_accident && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs">
+                              <AlertTriangle size={10} />
+                              Accident
+                            </span>
+                          )}
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => copyToClipboard(v.kijiji_title, `title-${idx}`)}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
-                    >
-                      {copiedId === `title-${idx}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
-                      Title
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(v.kijiji_description, `desc-${idx}`)}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
-                    >
-                      {copiedId === `desc-${idx}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
-                      Description
-                    </button>
-                  </div>
+
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 bg-gray-50">
+                      {/* Image Gallery */}
+                      {images.length > 0 && (
+                        <div className="p-4">
+                          <div className="relative">
+                            <img
+                              src={images[imgIdx]}
+                              alt={`${v.kijiji_title} - Image ${imgIdx + 1}`}
+                              className="w-full max-h-96 object-contain rounded-lg bg-gray-200"
+                            />
+                            {images.length > 1 && (
+                              <>
+                                <button
+                                  onClick={() => prevImage(v.id, images.length)}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70"
+                                >
+                                  <ChevronLeft size={16} />
+                                </button>
+                                <button
+                                  onClick={() => nextImage(v.id, images.length)}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70"
+                                >
+                                  <ChevronRight size={16} />
+                                </button>
+                                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded">
+                                  {imgIdx + 1} / {images.length}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          {/* Thumbnails */}
+                          <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1">
+                            {images.slice(0, 20).map((img, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setImageIndices((prev) => ({ ...prev, [v.id]: i }))}
+                                className={`shrink-0 w-16 h-12 rounded overflow-hidden border-2 ${
+                                  i === imgIdx ? "border-purple-500" : "border-transparent"
+                                }`}
+                              >
+                                <img src={img} alt="" className="w-full h-full object-cover" />
+                              </button>
+                            ))}
+                            {images.length > 20 && (
+                              <span className="flex items-center text-xs text-gray-400 px-2">+{images.length - 20}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Vehicle Details Grid */}
+                      <div className="px-4 pb-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <DetailItem label="Year" value={v.vehicle_year} />
+                          <DetailItem label="Make" value={v.vehicle_make} />
+                          <DetailItem label="Model" value={v.vehicle_model} />
+                          <DetailItem label="Trim" value={v.vehicle_trim} />
+                          <DetailItem label="Body Type" value={v.body_type} />
+                          <DetailItem label="Drivetrain" value={v.drivetrain} />
+                          <DetailItem label="Transmission" value={v.transmission} />
+                          <DetailItem label="Engine" value={v.engine} />
+                          <DetailItem label="Cylinders" value={v.cylinders} />
+                          <DetailItem label="Displacement" value={v.displacement} />
+                          <DetailItem label="Power" value={v.power_hp ? `${v.power_hp} HP` : null} />
+                          <DetailItem label="Fuel Type" value={v.fuel_type} />
+                          <DetailItem label="Mileage" value={v.mileage != null ? `${Number(v.mileage).toLocaleString()} km` : null} />
+                          <DetailItem label="Doors" value={v.doors} />
+                          <DetailItem label="Seats" value={v.seats} />
+                          <DetailItem label="Exterior" value={v.exterior_colour} />
+                          <DetailItem label="Manufacturer Colour" value={v.manufacturer_colour} />
+                          <DetailItem label="Interior" value={v.interior_colour} />
+                          <DetailItem label="VIN" value={v.vin} mono />
+                          <DetailItem label="Stock #" value={v.stock_number} />
+                          <DetailItem label="Fuel (City)" value={v.fuel_consumption_city} />
+                          <DetailItem label="Fuel (Hwy)" value={v.fuel_consumption_highway} />
+                          <DetailItem label="Price" value={v.price != null ? `$${Number(v.price).toLocaleString()}` : null} />
+                          <DetailItem label="Old Price" value={v.old_price != null ? `$${Number(v.old_price).toLocaleString()}` : null} />
+                          <DetailItem label="Location" value={v.location_city && v.location_province ? `${v.location_city}, ${v.location_province}` : null} />
+                          <DetailItem label="Accident" value={v.had_accident ? "Yes" : "No"} warn={v.had_accident ?? false} />
+                        </div>
+
+                        {/* Links and actions */}
+                        <div className="flex flex-wrap gap-2 mt-4">
+                          {v.carfax_url && (
+                            <a
+                              href={v.carfax_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700"
+                            >
+                              <Shield size={12} />
+                              View CarFax Report
+                            </a>
+                          )}
+                          {v.autotrader_url && (
+                            <a
+                              href={v.autotrader_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300"
+                            >
+                              <ExternalLink size={12} />
+                              AutoTrader Listing
+                            </a>
+                          )}
+                          {v.seller_phone && (
+                            <a
+                              href={`tel:${v.seller_phone}`}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300"
+                            >
+                              <Phone size={12} />
+                              {v.seller_phone}
+                            </a>
+                          )}
+                          <button
+                            onClick={() => copyToClipboard(v.kijiji_description, `inv-desc-${v.id}`)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300"
+                          >
+                            {copiedId === `inv-desc-${v.id}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
+                            Copy Description
+                          </button>
+                        </div>
+
+                        {/* Description */}
+                        {v.kijiji_description && (
+                          <div className="mt-4">
+                            <p className="text-xs text-gray-400 mb-1">Description</p>
+                            <pre className="text-xs text-gray-600 bg-white rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap border border-gray-200">
+                              {v.kijiji_description}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {v.features.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {v.features.slice(0, 6).map((f, fi) => (
-                      <span key={fi} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                        {f.length > 30 ? f.slice(0, 30) + "..." : f}
-                      </span>
-                    ))}
-                    {v.features.length > 6 && (
-                      <span className="px-2 py-0.5 text-gray-400 text-xs">
-                        +{v.features.length - 6} more
-                      </span>
-                    )}
-                  </div>
-                )}
+              );
+            })}
+            {filteredInventory.length === 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                <Car size={32} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">No vehicles in inventory</p>
+                <p className="text-gray-400 text-sm mt-1">
+                  Use the Chrome extension to scrape AutoTrader listings first
+                </p>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
 
-      {/* Listings Tab */}
+      {/* ═══ Listings Tab ═══ */}
       {tab === "listings" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -384,111 +669,192 @@ export default function KijijiDashboard() {
           </div>
 
           <div className="space-y-3">
-            {listings.map((listing) => (
-              <div key={listing.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div
-                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
-                  onClick={() => setExpandedListing(expandedListing === listing.id ? null : listing.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      listing.kijiji_status === "posted" ? "bg-green-100 text-green-700"
-                      : listing.kijiji_status === "draft" ? "bg-gray-100 text-gray-700"
-                      : listing.kijiji_status === "sold" ? "bg-blue-100 text-blue-700"
-                      : "bg-red-100 text-red-700"
-                    }`}>
-                      {listing.kijiji_status}
-                    </span>
-                    <div>
-                      <p className="font-medium text-gray-900 text-sm">{listing.kijiji_title}</p>
-                      <p className="text-xs text-gray-500">
-                        {listing.kijiji_accounts?.employee_name ?? "Unassigned"} · {listing.price ? `$${Number(listing.price).toLocaleString()}` : "Contact"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {listing.inquiry_count > 0 && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
-                        <MessageSquare size={10} />
-                        {listing.inquiry_count}
-                      </span>
-                    )}
-                    {listing.kijiji_status === "draft" && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); postSingle(listing.id); }}
-                        disabled={actionLoading === listing.id}
-                        className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                      >
-                        {actionLoading === listing.id ? "..." : "Post"}
-                      </button>
-                    )}
-                    {listing.kijiji_status === "posted" && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); updateListingStatus(listing.id, "mark_sold"); }}
-                        disabled={actionLoading === listing.id}
-                        className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        Sold
-                      </button>
-                    )}
-                    {expandedListing === listing.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </div>
-                </div>
+            {listings.map((listing) => {
+              const images = listing.image_urls ?? [];
+              const imgIdx = imageIndices[`l-${listing.id}`] ?? 0;
+              const isExpanded = expandedListing === listing.id;
 
-                {expandedListing === listing.id && (
-                  <div className="px-4 pb-4 border-t border-gray-100">
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <p className="text-gray-400 text-xs">Kijiji Title</p>
-                        <div className="flex items-center gap-1">
-                          <p className="text-gray-700">{listing.kijiji_title}</p>
-                          <button
-                            onClick={() => copyToClipboard(listing.kijiji_title, `lt-${listing.id}`)}
-                            className="text-gray-400 hover:text-gray-600"
-                          >
-                            {copiedId === `lt-${listing.id}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
-                          </button>
+              return (
+                <div key={listing.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="flex">
+                    {images.length > 0 && (
+                      <div className="relative w-32 h-24 shrink-0 bg-gray-100">
+                        <img src={images[0]} alt="" className="w-full h-full object-cover" />
+                        {images.length > 1 && (
+                          <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded">
+                            {images.length}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div
+                      className="flex-1 flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50"
+                      onClick={() => setExpandedListing(isExpanded ? null : listing.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          listing.kijiji_status === "posted" ? "bg-green-100 text-green-700"
+                          : listing.kijiji_status === "draft" ? "bg-gray-100 text-gray-700"
+                          : listing.kijiji_status === "sold" ? "bg-blue-100 text-blue-700"
+                          : "bg-red-100 text-red-700"
+                        }`}>
+                          {listing.kijiji_status}
+                        </span>
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm">{listing.kijiji_title}</p>
+                          <p className="text-xs text-gray-500">
+                            {listing.kijiji_accounts?.employee_name ?? "Unassigned"} · {listing.price ? `$${Number(listing.price).toLocaleString()}` : "Contact"}
+                            {listing.vin && <span className="ml-2 text-gray-400">VIN: {listing.vin}</span>}
+                          </p>
                         </div>
                       </div>
-                      <div>
-                        <p className="text-gray-400 text-xs">Account</p>
-                        <p className="text-gray-700">{listing.kijiji_accounts?.employee_name}</p>
-                        <p className="text-gray-500 text-xs">{listing.kijiji_accounts?.employee_email}</p>
+                      <div className="flex items-center gap-2">
+                        {listing.carfax_url && (
+                          <a
+                            href={listing.carfax_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs"
+                          >
+                            CarFax
+                          </a>
+                        )}
+                        {listing.inquiry_count > 0 && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
+                            <MessageSquare size={10} />
+                            {listing.inquiry_count}
+                          </span>
+                        )}
+                        {listing.kijiji_status === "draft" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); postSingle(listing.id); }}
+                            disabled={actionLoading === listing.id}
+                            className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {actionLoading === listing.id ? "..." : "Post"}
+                          </button>
+                        )}
+                        {listing.kijiji_status === "posted" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); updateListingStatus(listing.id, "mark_sold"); }}
+                            disabled={actionLoading === listing.id}
+                            className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            Sold
+                          </button>
+                        )}
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </div>
                     </div>
-                    <div className="mt-3">
-                      <p className="text-gray-400 text-xs mb-1">Kijiji Description</p>
-                      <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">
-                        {listing.kijiji_description}
-                      </pre>
-                      <button
-                        onClick={() => copyToClipboard(listing.kijiji_description, `ld-${listing.id}`)}
-                        className="mt-1 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        {copiedId === `ld-${listing.id}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
-                        Copy description
-                      </button>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      {listing.kijiji_status === "posted" && (
-                        <button
-                          onClick={() => updateListingStatus(listing.id, "remove")}
-                          disabled={actionLoading === listing.id}
-                          className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs hover:bg-red-100"
-                        >
-                          Remove from Kijiji
-                        </button>
-                      )}
-                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {isExpanded && (
+                    <div className="px-4 pb-4 border-t border-gray-100">
+                      {/* Image gallery for listing */}
+                      {images.length > 0 && (
+                        <div className="mt-3">
+                          <div className="relative">
+                            <img
+                              src={images[imgIdx]}
+                              alt=""
+                              className="w-full max-h-72 object-contain rounded-lg bg-gray-100"
+                            />
+                            {images.length > 1 && (
+                              <>
+                                <button
+                                  onClick={() => prevImage(`l-${listing.id}`, images.length)}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1 rounded-full"
+                                >
+                                  <ChevronLeft size={14} />
+                                </button>
+                                <button
+                                  onClick={() => nextImage(`l-${listing.id}`, images.length)}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1 rounded-full"
+                                >
+                                  <ChevronRight size={14} />
+                                </button>
+                                <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">
+                                  {imgIdx + 1} / {images.length}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <DetailItem label="Account" value={listing.kijiji_accounts?.employee_name} />
+                        <DetailItem label="Price" value={listing.price != null ? `$${Number(listing.price).toLocaleString()}` : null} />
+                        <DetailItem label="Mileage" value={listing.mileage != null ? `${Number(listing.mileage).toLocaleString()} km` : null} />
+                        <DetailItem label="Transmission" value={listing.transmission} />
+                        <DetailItem label="Drivetrain" value={listing.drivetrain} />
+                        <DetailItem label="Engine" value={listing.engine} />
+                        <DetailItem label="Exterior" value={listing.exterior_colour} />
+                        <DetailItem label="Interior" value={listing.interior_colour} />
+                        <DetailItem label="VIN" value={listing.vin} mono />
+                        <DetailItem label="Stock #" value={listing.stock_number} />
+                        <DetailItem label="Doors" value={listing.doors} />
+                        <DetailItem label="Seats" value={listing.seats} />
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {listing.carfax_url && (
+                          <a href={listing.carfax_url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700">
+                            <Shield size={12} /> View CarFax
+                          </a>
+                        )}
+                        {listing.autotrader_url && (
+                          <a href={listing.autotrader_url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300">
+                            <ExternalLink size={12} /> AutoTrader
+                          </a>
+                        )}
+                        <button
+                          onClick={() => copyToClipboard(listing.kijiji_title, `lt-${listing.id}`)}
+                          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                        >
+                          {copiedId === `lt-${listing.id}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
+                          Copy Title
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(listing.kijiji_description, `ld-${listing.id}`)}
+                          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                        >
+                          {copiedId === `ld-${listing.id}` ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
+                          Copy Desc
+                        </button>
+                      </div>
+
+                      <div className="mt-3">
+                        <p className="text-gray-400 text-xs mb-1">Kijiji Description</p>
+                        <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                          {listing.kijiji_description}
+                        </pre>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        {listing.kijiji_status === "posted" && (
+                          <button
+                            onClick={() => updateListingStatus(listing.id, "remove")}
+                            disabled={actionLoading === listing.id}
+                            className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs hover:bg-red-100"
+                          >
+                            Remove from Kijiji
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Inquiries Tab */}
+      {/* ═══ Inquiries Tab ═══ */}
       {tab === "inquiries" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -523,9 +889,7 @@ export default function KijijiDashboard() {
                           {inquiry.customer_name || "Unknown Customer"}
                         </p>
                         {!inquiry.replied && (
-                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
-                            New
-                          </span>
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">New</span>
                         )}
                       </div>
                       <div className="flex gap-3 mt-0.5 text-xs text-gray-500">
@@ -583,7 +947,7 @@ export default function KijijiDashboard() {
         </div>
       )}
 
-      {/* Accounts Tab */}
+      {/* ═══ Accounts Tab ═══ */}
       {tab === "accounts" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -636,6 +1000,18 @@ export default function KijijiDashboard() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailItem({ label, value, mono, warn }: { label: string; value: string | number | null | undefined; mono?: boolean; warn?: boolean }) {
+  if (value == null || value === "") return null;
+  return (
+    <div>
+      <p className="text-gray-400 text-xs">{label}</p>
+      <p className={`text-sm ${warn ? "text-red-600 font-medium" : "text-gray-700"} ${mono ? "font-mono text-xs" : ""}`}>
+        {value}
+      </p>
     </div>
   );
 }

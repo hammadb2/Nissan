@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  scrapeAutoTraderInventory,
-  generateKijijiTitle,
-  generateKijijiDescription,
-} from "@/lib/autotrader-scraper";
+import { generateUniqueDescription } from "@/lib/kijiji-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -26,61 +22,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const vehicles = await scrapeAutoTraderInventory({ offer: "U" });
-
-    const { data: existing } = await supabase
+    // Pull unassigned draft listings from kijiji_listings (scraped by extension)
+    const { data: drafts, error: draftErr } = await supabase
       .from("kijiji_listings")
-      .select("autotrader_title")
-      .in("kijiji_status", ["draft", "posted"]);
+      .select("*")
+      .eq("kijiji_status", "draft")
+      .is("kijiji_ad_id", null);
 
-    const existingTitles = new Set(
-      (existing ?? []).map((e) => e.autotrader_title)
-    );
+    if (draftErr) {
+      return NextResponse.json({ error: draftErr.message }, { status: 500 });
+    }
 
-    const newVehicles = vehicles.filter(
-      (v) => !existingTitles.has(v.title)
-    );
-
-    if (newVehicles.length === 0) {
+    if (!drafts?.length) {
       return NextResponse.json({
-        message: "All vehicles already assigned",
+        message: "No unassigned vehicles found. Run the AutoTrader scraper extension first.",
         assigned: 0,
       });
     }
 
-    const assignments = newVehicles.map((vehicle, idx) => {
-      const account = accounts[idx % accounts.length];
-      return {
-        account_id: account.id,
-        autotrader_title: vehicle.title,
-        kijiji_title: generateKijijiTitle(vehicle),
-        kijiji_description: generateKijijiDescription(vehicle),
-        vehicle_year: vehicle.year,
-        vehicle_make: vehicle.make,
-        vehicle_model: vehicle.model,
-        vehicle_trim: vehicle.trim || null,
-        mileage: vehicle.mileage,
-        price: vehicle.price,
-        fuel_type: vehicle.fuel_type,
-        transmission: vehicle.transmission,
-        features: vehicle.features.join("\n"),
-        kijiji_status: "draft" as const,
-      };
-    });
+    // Round-robin assign across accounts
+    let assigned = 0;
+    for (let i = 0; i < drafts.length; i++) {
+      const draft = drafts[i];
+      const account = accounts[i % accounts.length];
 
-    const { data: inserted, error: insErr } = await supabase
-      .from("kijiji_listings")
-      .insert(assignments)
-      .select();
+      // Generate unique description for each listing
+      const uniqueDesc = generateUniqueDescription(draft);
 
-    if (insErr) {
-      return NextResponse.json({ error: insErr.message }, { status: 500 });
+      const { error: updateErr } = await supabase
+        .from("kijiji_listings")
+        .update({
+          account_id: account.id,
+          kijiji_description: uniqueDesc,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", draft.id);
+
+      if (!updateErr) {
+        assigned++;
+      }
     }
 
+    // Update account listing counts
     const countsByAccount: Record<string, number> = {};
-    for (const a of assignments) {
-      countsByAccount[a.account_id] =
-        (countsByAccount[a.account_id] || 0) + 1;
+    for (let i = 0; i < drafts.length; i++) {
+      const accountId = accounts[i % accounts.length].id;
+      countsByAccount[accountId] = (countsByAccount[accountId] || 0) + 1;
     }
 
     for (const [accountId, count] of Object.entries(countsByAccount)) {
@@ -97,38 +84,40 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      assigned: inserted?.length ?? 0,
-      listings: inserted,
+      assigned,
+      total_drafts: drafts.length,
     });
   }
 
-  const { account_id, vehicle } = body;
+  const { account_id, listing_id } = body;
 
-  if (!account_id || !vehicle) {
+  if (!account_id || !listing_id) {
     return NextResponse.json(
-      { error: "account_id and vehicle required" },
+      { error: "account_id and listing_id required" },
       { status: 400 }
     );
   }
 
+  const { data: listing, error: listErr } = await supabase
+    .from("kijiji_listings")
+    .select("*")
+    .eq("id", listing_id)
+    .single();
+
+  if (listErr || !listing) {
+    return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+  }
+
+  const uniqueDesc = generateUniqueDescription(listing);
+
   const { data, error } = await supabase
     .from("kijiji_listings")
-    .insert({
+    .update({
       account_id,
-      autotrader_title: vehicle.title,
-      kijiji_title: generateKijijiTitle(vehicle),
-      kijiji_description: generateKijijiDescription(vehicle),
-      vehicle_year: vehicle.year,
-      vehicle_make: vehicle.make,
-      vehicle_model: vehicle.model,
-      vehicle_trim: vehicle.trim || null,
-      mileage: vehicle.mileage,
-      price: vehicle.price,
-      fuel_type: vehicle.fuel_type,
-      transmission: vehicle.transmission,
-      features: vehicle.features?.join("\n") ?? null,
-      kijiji_status: "draft",
+      kijiji_description: uniqueDesc,
+      updated_at: new Date().toISOString(),
     })
+    .eq("id", listing_id)
     .select()
     .single();
 
@@ -136,5 +125,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data, { status: 201 });
+  return NextResponse.json(data);
 }
