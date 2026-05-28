@@ -252,18 +252,32 @@ async function incrementRepliesSent() {
 
 async function checkIpLocation() {
   const config = globalThis.FB_CONFIG || {};
-  const url = config.IP_CHECK_URL || "https://ipapi.co/json/";
   const required = config.REQUIRED_COUNTRY || "CA";
 
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-    const country = data.country_code || data.country;
-    if (country !== required) {
-      return { allowed: false, country, reason: `IP is ${country}, required ${required}` };
+  // Try multiple IP geolocation services for reliability
+  const services = [
+    { url: "https://ipapi.co/json/", parse: (d) => d.country_code || d.country },
+    { url: "https://ipwho.is/", parse: (d) => d.country_code },
+    { url: "https://api.country.is/", parse: (d) => d.country },
+  ];
+
+  for (const svc of services) {
+    try {
+      const response = await fetch(svc.url, { signal: AbortSignal.timeout(5000) });
+      if (!response.ok) continue;
+      const data = await response.json();
+      const country = svc.parse(data);
+      if (!country) continue;
+      if (country !== required) {
+        return { allowed: false, country, reason: `IP is ${country}, required ${required}` };
+      }
+      return { allowed: true, country };
+    } catch (err) {
+      console.warn(`[FB Bot] IP check via ${svc.url} failed:`, err.message);
     }
-    return { allowed: true, country };
-  } catch (err) {
-    return { allowed: false, country: "unknown", reason: `IP check failed: ${err.message}` };
   }
+
+  // All services failed — allow with warning (don't block on API failures)
+  console.warn("[FB Bot] All IP check services failed. Allowing with warning.");
+  return { allowed: true, country: "unknown-allow", reason: "IP check services unreachable — proceeding" };
 }
