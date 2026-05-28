@@ -1,29 +1,22 @@
 import { NextResponse } from "next/server";
-import {
-  scrapeAutoTraderInventory,
-  generateKijijiTitle,
-  generateKijijiDescription,
-} from "@/lib/autotrader-scraper";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    const vehicles = await scrapeAutoTraderInventory({ offer: "U" });
+  const supabase = getSupabaseAdmin();
 
-    const enriched = vehicles.map((v) => ({
-      ...v,
-      kijiji_title: generateKijijiTitle(v),
-      kijiji_description: generateKijijiDescription(v),
-    }));
+  const { data, error } = await supabase
+    .from("kijiji_listings")
+    .select("*, kijiji_accounts(employee_name, employee_email)")
+    .order("created_at", { ascending: false });
 
-    return NextResponse.json({
-      vehicles: enriched,
-      total: enriched.length,
-      scraped_at: new Date().toISOString(),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Scrape failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  return NextResponse.json({
+    vehicles: data ?? [],
+    total: data?.length ?? 0,
+  });
 }

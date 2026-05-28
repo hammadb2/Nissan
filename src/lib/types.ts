@@ -467,6 +467,39 @@ export interface KijijiListing {
   inquiry_count: number;
   created_at: string;
   updated_at: string;
+  image_urls: string[] | null;
+  carfax_url: string | null;
+  exterior_colour: string | null;
+  interior_colour: string | null;
+  engine: string | null;
+  doors: number | null;
+  seats: number | null;
+  vin: string | null;
+  stock_number: string | null;
+  body_style: string | null;
+  fuel_economy: string | null;
+  manufacturer_colour: string | null;
+  upholstery_colour: string | null;
+  cylinders: number | null;
+  displacement: string | null;
+  displacement_cc: number | null;
+  power_hp: number | null;
+  power_kw: number | null;
+  fuel_consumption_city: string | null;
+  fuel_consumption_highway: string | null;
+  vehicle_type: string | null;
+  had_accident: boolean | null;
+  is_damaged: boolean | null;
+  autotrader_id: string | null;
+  old_price: number | null;
+  price_evaluation: string | null;
+  seller_phone: string | null;
+  location_city: string | null;
+  location_province: string | null;
+  location_postal: string | null;
+  location_address: string | null;
+  num_images: number | null;
+  description_html: string | null;
 }
 
 export interface KijijiListingWithAccount extends KijijiListing {

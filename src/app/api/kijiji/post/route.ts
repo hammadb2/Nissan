@@ -5,14 +5,36 @@ import {
   kijijiPostAd,
   buildVehicleAttributes,
 } from "@/lib/kijiji-api";
+import {
+  generateUniqueDescription,
+  getPostingDelay,
+  checkServerLocation,
+  sleep,
+} from "@/lib/kijiji-safety";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const body = await req.json();
 
+  // IP check before any posting
+  if (body.check_ip) {
+    const loc = await checkServerLocation();
+    return NextResponse.json(loc);
+  }
+
   if (body.post_all_drafts) {
+    // Verify Canadian IP before batch posting
+    const loc = await checkServerLocation();
+    if (!loc.isCanadian) {
+      return NextResponse.json({
+        error: `Posting blocked: server IP is in ${loc.country}, not Canada. Kijiji requires Canadian IP. IP: ${loc.ip}`,
+        ip_check: loc,
+      }, { status: 403 });
+    }
+
     const { data: drafts, error: draftErr } = await supabase
       .from("kijiji_listings")
       .select("*, kijiji_accounts(*)")
@@ -26,10 +48,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "No drafts to post", posted: 0 });
     }
 
-    const results: Array<{ listing_id: string; success: boolean; error?: string }> = [];
+    const results: Array<{ listing_id: string; success: boolean; error?: string; delay_ms?: number }> = [];
     const sessionCache = new Map<string, Awaited<ReturnType<typeof kijijiLogin>>>();
 
-    for (const draft of drafts) {
+    for (let i = 0; i < drafts.length; i++) {
+      const draft = drafts[i];
       const account = draft.kijiji_accounts;
       if (!account) {
         results.push({
@@ -53,12 +76,22 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // Rate limiting: random delay between posts (skip for first)
+      if (i > 0) {
+        const delay = getPostingDelay();
+        await sleep(delay);
+        results[results.length - 1].delay_ms = delay;
+      }
+
       try {
         let session = sessionCache.get(account.employee_email);
         if (!session) {
           session = await kijijiLogin(account.employee_email, password);
           sessionCache.set(account.employee_email, session);
         }
+
+        // Generate unique description to avoid copy-paste detection
+        const uniqueDesc = generateUniqueDescription(draft);
 
         const attrs = buildVehicleAttributes({
           year: draft.vehicle_year,
@@ -72,7 +105,7 @@ export async function POST(req: NextRequest) {
 
         const posted = await kijijiPostAd(session, {
           title: draft.kijiji_title,
-          description: draft.kijiji_description,
+          description: uniqueDesc,
           price: draft.price,
           attributes: attrs,
         });
@@ -82,6 +115,7 @@ export async function POST(req: NextRequest) {
           .update({
             kijiji_status: "posted",
             kijiji_ad_id: posted.adId,
+            kijiji_description: uniqueDesc,
             posted_at: new Date().toISOString(),
             expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             updated_at: new Date().toISOString(),
@@ -103,6 +137,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       posted: successCount,
       total: drafts.length,
+      ip_check: { country: "CA", isCanadian: true },
       results,
     });
   }
@@ -111,6 +146,15 @@ export async function POST(req: NextRequest) {
 
   if (!listing_id) {
     return NextResponse.json({ error: "listing_id required" }, { status: 400 });
+  }
+
+  // Verify Canadian IP for single post too
+  const loc = await checkServerLocation();
+  if (!loc.isCanadian) {
+    return NextResponse.json({
+      error: `Posting blocked: server IP is in ${loc.country}, not Canada. IP: ${loc.ip}`,
+      ip_check: loc,
+    }, { status: 403 });
   }
 
   const { data: listing, error: listErr } = await supabase
@@ -142,6 +186,9 @@ export async function POST(req: NextRequest) {
   try {
     const session = await kijijiLogin(account.employee_email, password);
 
+    // Generate unique description
+    const uniqueDesc = generateUniqueDescription(listing);
+
     const attrs = buildVehicleAttributes({
       year: listing.vehicle_year,
       make: listing.vehicle_make,
@@ -154,7 +201,7 @@ export async function POST(req: NextRequest) {
 
     const posted = await kijijiPostAd(session, {
       title: listing.kijiji_title,
-      description: listing.kijiji_description,
+      description: uniqueDesc,
       price: listing.price,
       attributes: attrs,
     });
@@ -164,6 +211,7 @@ export async function POST(req: NextRequest) {
       .update({
         kijiji_status: "posted",
         kijiji_ad_id: posted.adId,
+        kijiji_description: uniqueDesc,
         posted_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         updated_at: new Date().toISOString(),
