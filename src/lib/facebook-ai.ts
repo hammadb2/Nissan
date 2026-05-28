@@ -1,35 +1,21 @@
 import OpenAI from "openai";
 import { getSupabaseAdmin } from "./supabase";
 
-let _groqClient: OpenAI | null = null;
+let _nvidiaClient: OpenAI | null = null;
 
-function getGroqAI(): OpenAI {
-  if (!_groqClient) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("GROQ_API_KEY is not set");
-    _groqClient = new OpenAI({
-      apiKey,
-      baseURL: "https://api.groq.com/openai/v1",
-    });
-  }
-  return _groqClient;
-}
-
-let _fbConvoClient: OpenAI | null = null;
-
-function getFBConvoAI(): OpenAI {
-  if (!_fbConvoClient) {
+function getNvidiaAI(): OpenAI {
+  if (!_nvidiaClient) {
     const apiKey = process.env.NVIDIA_SMS_API_KEY || process.env.NVIDIA_API_KEY;
     if (!apiKey) throw new Error("NVIDIA_SMS_API_KEY is not set");
-    _fbConvoClient = new OpenAI({
+    _nvidiaClient = new OpenAI({
       apiKey,
       baseURL: "https://integrate.api.nvidia.com/v1",
     });
   }
-  return _fbConvoClient;
+  return _nvidiaClient;
 }
 
-const FB_CONVO_MODEL = "meta/llama-4-maverick-17b-128e-instruct";
+const NVIDIA_MODEL = "meta/llama-4-maverick-17b-128e-instruct";
 
 const BANNED_WORDS = [
   "financing available",
@@ -85,7 +71,7 @@ interface VehicleDescriptionInput {
 export async function generateFBDescription(
   vehicle: VehicleDescriptionInput
 ): Promise<string> {
-  const ai = getGroqAI();
+  const ai = getNvidiaAI();
 
   const inputData = `INPUT DATA:
 Year: ${vehicle.year}
@@ -107,7 +93,7 @@ Mention the price with "+ GST" at the end.
 Last line must be exactly: AMVIC Licensed Dealer`;
 
   const response = await ai.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: NVIDIA_MODEL,
     messages: [
       { role: "system", content: DESCRIPTION_PROMPT },
       { role: "user", content: inputData },
@@ -402,7 +388,7 @@ async function buildFBAvailabilitySection(): Promise<string> {
 export async function generateFBReply(
   context: FBConversationContext
 ): Promise<FBReplyResult> {
-  const ai = getFBConvoAI();
+  const ai = getNvidiaAI();
 
   const [inventory, availability] = await Promise.all([
     buildFBInventorySection(),
@@ -489,7 +475,7 @@ If nothing new was extracted, omit extractedInfo entirely.`;
   }
 
   const response = await ai.chat.completions.create({
-    model: FB_CONVO_MODEL,
+    model: NVIDIA_MODEL,
     messages,
     temperature: 0.7,
     max_tokens: 500,
