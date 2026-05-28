@@ -44,10 +44,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Load saved CRM URL
+  // Load saved CRM URL, default to production URL
+  const DEFAULT_CRM_URL = "https://nissan-eight.vercel.app";
   chrome.storage.local.get(["crmBaseUrl"], (result) => {
     if (result.crmBaseUrl) {
       crmUrlInput.value = result.crmBaseUrl;
+    } else {
+      crmUrlInput.value = DEFAULT_CRM_URL;
+      chrome.storage.local.set({ crmBaseUrl: DEFAULT_CRM_URL });
     }
   });
 

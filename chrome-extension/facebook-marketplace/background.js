@@ -41,6 +41,17 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 async function startPolling() {
+  // Auto-queue all inventory from Supabase on start
+  try {
+    console.log("[FB Bot] Auto-queuing inventory from CRM...");
+    updateBadge("...", "#FFC107");
+    const queueResult = await crmFetch("/api/facebook/auto-queue", { method: "POST" });
+    console.log(`[FB Bot] Auto-queue result: ${queueResult.queued} queued, ${queueResult.skipped} skipped`);
+  } catch (err) {
+    console.error("[FB Bot] Auto-queue failed:", err);
+    await setState({ lastError: "Auto-queue failed: " + err.message });
+  }
+
   chrome.alarms.create(ALARM_LISTING_POLL, { periodInMinutes: 1 });
   chrome.alarms.create(ALARM_REPLY_POLL, { periodInMinutes: 0.17 }); // ~10 seconds
   chrome.alarms.create(ALARM_INBOX_POLL, { periodInMinutes: 5 });
