@@ -12,7 +12,9 @@
   ],
   "host_permissions": [
     "https://www.facebook.com/*",
-    "https://facebook.com/*"
+    "https://facebook.com/*",
+    "https://nissan-eight.vercel.app/*",
+    "https://*.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"
