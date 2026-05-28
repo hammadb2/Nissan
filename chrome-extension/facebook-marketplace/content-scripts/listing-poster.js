@@ -17,8 +17,8 @@
 
   const DELAY_MIN = 2000;
   const DELAY_MAX = 5000;
-  const KEYSTROKE_MIN = 30;
-  const KEYSTROKE_MAX = 120;
+  const KEYSTROKE_MIN = 80;
+  const KEYSTROKE_MAX = 150;
   const PAGE_LOAD_WAIT = 5000;
 
   function randomBetween(min, max) {
@@ -606,9 +606,8 @@
       },
     });
 
-    if (fbListingUrl && typeof globalThis.scheduleShadowBanCheck === "function") {
-      globalThis.scheduleShadowBanCheck(fbListingUrl, job.id);
-    }
+    // Shadow ban check is now handled by background.js using incognito window
+    // after a 10-minute delay (CONFIG.SHADOW_BAN_CHECK_DELAY_MS)
 
     console.log("[FB Poster] Listing published successfully:", job.id);
   } catch (err) {

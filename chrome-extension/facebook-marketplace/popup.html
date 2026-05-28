@@ -116,8 +116,26 @@
     <span class="status-value" id="postsToday">0 / 10</span>
   </div>
   <div class="status-row">
+    <span class="status-label">Messages Received Today</span>
+    <span class="status-value" id="messagesReceived">0</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Replies Sent Today</span>
+    <span class="status-value" id="repliesSent">0</span>
+  </div>
+  <div class="status-row">
     <span class="status-label">Quiet Hours</span>
     <span class="status-value" id="quietHours">--</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Last Action</span>
+    <span class="status-value" id="lastAction">--</span>
+  </div>
+  <div id="lastWarningContainer" style="display:none;">
+    <div class="status-row">
+      <span class="status-label">Last Warning</span>
+      <span class="status-value red" id="lastWarning"></span>
+    </div>
   </div>
 
   <button class="toggle-btn start" id="toggleBtn">Start Bot</button>

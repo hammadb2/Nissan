@@ -8,8 +8,8 @@
 (async function () {
   "use strict";
 
-  const KEYSTROKE_MIN = 30;
-  const KEYSTROKE_MAX = 120;
+  const KEYSTROKE_MIN = 80;
+  const KEYSTROKE_MAX = 150;
   const ACTION_DELAY_MIN = 2000;
   const ACTION_DELAY_MAX = 5000;
 
