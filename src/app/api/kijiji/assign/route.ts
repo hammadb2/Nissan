@@ -22,12 +22,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Pull unassigned draft listings from kijiji_listings (scraped by extension)
+    // Pull unassigned draft listings (no account_id yet)
     const { data: drafts, error: draftErr } = await supabase
       .from("kijiji_listings")
       .select("*")
       .eq("kijiji_status", "draft")
-      .is("kijiji_ad_id", null);
+      .is("account_id", null);
 
     if (draftErr) {
       return NextResponse.json({ error: draftErr.message }, { status: 500 });
@@ -40,13 +40,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Round-robin assign across accounts
+    // 1 listing per account max — cap assignments at number of accounts
+    const maxListings = Math.min(drafts.length, accounts.length);
     let assigned = 0;
-    for (let i = 0; i < drafts.length; i++) {
-      const draft = drafts[i];
-      const account = accounts[i % accounts.length];
 
-      // Generate unique description for each listing
+    for (let i = 0; i < maxListings; i++) {
+      const draft = drafts[i];
+      const account = accounts[i];
+
       const uniqueDesc = generateUniqueDescription(draft);
 
       const { error: updateErr } = await supabase
@@ -63,29 +64,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Update account listing counts
-    const countsByAccount: Record<string, number> = {};
-    for (let i = 0; i < drafts.length; i++) {
-      const accountId = accounts[i % accounts.length].id;
-      countsByAccount[accountId] = (countsByAccount[accountId] || 0) + 1;
-    }
-
-    for (const [accountId, count] of Object.entries(countsByAccount)) {
-      const acct = accounts.find((a) => a.id === accountId);
-      if (acct) {
-        await supabase
-          .from("kijiji_accounts")
-          .update({
-            listings_count: (acct.listings_count ?? 0) + count,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", accountId);
-      }
+    // Update account listing counts (1 per account)
+    for (let i = 0; i < maxListings; i++) {
+      const account = accounts[i];
+      await supabase
+        .from("kijiji_accounts")
+        .update({
+          listings_count: (account.listings_count ?? 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", account.id);
     }
 
     return NextResponse.json({
       assigned,
       total_drafts: drafts.length,
+      skipped: drafts.length - maxListings,
+      max_accounts: accounts.length,
     });
   }
 

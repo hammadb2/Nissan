@@ -54,15 +54,13 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const password = process.env[
-        `KIJIJI_PW_${account.employee_email.split("@")[0].replace(/\./g, "_").toUpperCase()}`
-      ];
+      const password = process.env.KIJIJI_SHARED_PASSWORD;
 
       if (!password) {
         results.push({
           listing_id: draft.id,
           success: false,
-          error: `No password env var for ${account.employee_email}`,
+          error: "KIJIJI_SHARED_PASSWORD env var not set",
         });
         continue;
       }
@@ -153,13 +151,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No account linked" }, { status: 400 });
   }
 
-  const password = process.env[
-    `KIJIJI_PW_${account.employee_email.split("@")[0].replace(/\./g, "_").toUpperCase()}`
-  ];
+  const password = process.env.KIJIJI_SHARED_PASSWORD;
 
   if (!password) {
     return NextResponse.json(
-      { error: `No password configured for ${account.employee_email}` },
+      { error: "KIJIJI_SHARED_PASSWORD env var not set" },
       { status: 400 }
     );
   }

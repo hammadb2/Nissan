@@ -49,6 +49,11 @@ export default function KijijiDashboard() {
   const [inventoryFilter, setInventoryFilter] = useState<"all" | "draft" | "posted" | "sold">("all");
   const [ipCheck, setIpCheck] = useState<{ isCanadian: boolean; country: string; ip: string } | null>(null);
   const [ipLoading, setIpLoading] = useState(false);
+  const [postResults, setPostResults] = useState<{
+    posted: number;
+    total: number;
+    results: Array<{ listing_id: string; success: boolean; error?: string }>;
+  } | null>(null);
 
   const checkIp = useCallback(async () => {
     setIpLoading(true);
@@ -132,11 +137,22 @@ export default function KijijiDashboard() {
 
   async function postAllDrafts() {
     setActionLoading("post_all");
-    await fetch("/api/kijiji/post", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_all_drafts: true }),
-    });
+    setPostResults(null);
+    try {
+      const res = await fetch("/api/kijiji/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post_all_drafts: true }),
+      });
+      const data = await res.json();
+      setPostResults(data);
+    } catch (err) {
+      setPostResults({
+        posted: 0,
+        total: 0,
+        results: [{ listing_id: "unknown", success: false, error: err instanceof Error ? err.message : "Network error" }],
+      });
+    }
     await fetchListings();
     await fetchStats();
     setActionLoading(null);
@@ -144,11 +160,34 @@ export default function KijijiDashboard() {
 
   async function postSingle(listingId: string) {
     setActionLoading(listingId);
-    await fetch("/api/kijiji/post", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ listing_id: listingId }),
-    });
+    setPostResults(null);
+    try {
+      const res = await fetch("/api/kijiji/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listing_id: listingId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPostResults({
+          posted: 1,
+          total: 1,
+          results: [{ listing_id: listingId, success: true }],
+        });
+      } else {
+        setPostResults({
+          posted: 0,
+          total: 1,
+          results: [{ listing_id: listingId, success: false, error: data.error ?? "Failed" }],
+        });
+      }
+    } catch (err) {
+      setPostResults({
+        posted: 0,
+        total: 1,
+        results: [{ listing_id: listingId, success: false, error: err instanceof Error ? err.message : "Network error" }],
+      });
+    }
     await fetchListings();
     await fetchStats();
     setActionLoading(null);
@@ -271,6 +310,68 @@ export default function KijijiDashboard() {
           );
         })}
       </div>
+
+      {/* ═══ Posting Results Panel ═══ */}
+      {postResults && (
+        <div className={`rounded-xl border p-4 ${
+          postResults.posted === postResults.total && postResults.total > 0
+            ? "bg-green-50 border-green-200"
+            : postResults.posted === 0
+              ? "bg-red-50 border-red-200"
+              : "bg-amber-50 border-amber-200"
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">
+              Posting Results — {postResults.posted}/{postResults.total} succeeded
+            </h3>
+            <button
+              onClick={() => setPostResults(null)}
+              className="text-gray-400 hover:text-gray-600 text-sm"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="max-h-60 overflow-y-auto space-y-1.5">
+            {postResults.results.map((r, idx) => {
+              const listing = listings.find((l) => l.id === r.listing_id);
+              return (
+                <div key={idx} className={`flex items-center justify-between py-1.5 px-3 rounded text-sm ${
+                  r.success ? "bg-green-100" : "bg-red-100"
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${r.success ? "bg-green-500" : "bg-red-500"}`} />
+                    <span className="text-gray-800">
+                      {listing?.kijiji_title ?? r.listing_id}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {r.success ? (
+                      <span className="text-green-700 text-xs font-medium">Posted</span>
+                    ) : (
+                      <span className="text-red-700 text-xs">{r.error}</span>
+                    )}
+                    {r.success && listing?.kijiji_ad_id && (
+                      <a
+                        href={`https://www.kijiji.ca/v-cars-trucks/calgary/l/${listing.kijiji_ad_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-0.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700"
+                      >
+                        View on Kijiji
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {postResults.results.some((r) => r.error) && (
+            <p className="mt-2 text-xs text-gray-500">
+              Check that KIJIJI_SHARED_PASSWORD is set in Vercel environment variables.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ═══ Overview Tab ═══ */}
       {tab === "overview" && stats && (
@@ -735,6 +836,17 @@ export default function KijijiDashboard() {
                             {actionLoading === listing.id ? "..." : "Post"}
                           </button>
                         )}
+                        {listing.kijiji_status === "posted" && listing.kijiji_ad_id && (
+                          <a
+                            href={`https://www.kijiji.ca/v-cars-trucks/calgary/l/${listing.kijiji_ad_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700"
+                          >
+                            View on Kijiji
+                          </a>
+                        )}
                         {listing.kijiji_status === "posted" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); updateListingStatus(listing.id, "mark_sold"); }}
@@ -798,7 +910,20 @@ export default function KijijiDashboard() {
                         <DetailItem label="Seats" value={listing.seats} />
                       </div>
 
+                      {listing.posted_at && (
+                        <p className="mt-2 text-xs text-gray-400">
+                          Posted: {new Date(listing.posted_at).toLocaleString()}
+                          {listing.kijiji_ad_id && ` · Ad ID: ${listing.kijiji_ad_id}`}
+                        </p>
+                      )}
+
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {listing.kijiji_status === "posted" && listing.kijiji_ad_id && (
+                          <a href={`https://www.kijiji.ca/v-cars-trucks/calgary/l/${listing.kijiji_ad_id}`} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs hover:bg-purple-700">
+                            <ExternalLink size={12} /> View on Kijiji
+                          </a>
+                        )}
                         {listing.carfax_url && (
                           <a href={listing.carfax_url} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700">
