@@ -93,25 +93,33 @@ async function handleListingPoll() {
   }
 
   try {
+    console.log("[FB Bot] Fetching next listing job from CRM...");
     const result = await getNextListingJob();
+    console.log("[FB Bot] API response:", JSON.stringify(result).slice(0, 300));
+
     if (!result.job) {
       console.log(`[FB Bot] No listing job: ${result.reason}`);
+      await setState({ lastError: result.reason || "No jobs available" });
       return;
     }
 
-    console.log(`[FB Bot] Got listing job: ${result.job.id}`);
+    console.log(`[FB Bot] Got listing job: ${result.job.vehicle_year} ${result.job.vehicle_make} ${result.job.vehicle_model} (${result.job.id})`);
+    console.log(`[FB Bot] Description: ${(result.job.description || "NONE").slice(0, 100)}...`);
+    console.log(`[FB Bot] Images: ${(result.job.image_urls || []).length} photos`);
 
     // Store the current job for the content script to pick up
     await setState({ currentJob: result.job });
 
     // Open the Facebook Marketplace create vehicle page
+    console.log("[FB Bot] Opening Marketplace create page...");
     chrome.tabs.create({
       url: "https://www.facebook.com/marketplace/create/vehicle",
       active: false,
     });
   } catch (err) {
     console.error("[FB Bot] Listing poll error:", err);
-    await setState({ lastError: err.message });
+    console.error("[FB Bot] Error details:", err.message, err.stack);
+    await setState({ lastError: "Listing poll: " + err.message });
   }
 }
 
