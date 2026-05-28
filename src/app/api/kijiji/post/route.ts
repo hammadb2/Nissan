@@ -26,15 +26,6 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.post_all_drafts) {
-    // Verify Canadian IP before batch posting
-    const loc = await checkServerLocation();
-    if (!loc.isCanadian) {
-      return NextResponse.json({
-        error: `Posting blocked: server IP is in ${loc.country}, not Canada. Kijiji requires Canadian IP. IP: ${loc.ip}`,
-        ip_check: loc,
-      }, { status: 403 });
-    }
-
     const { data: drafts, error: draftErr } = await supabase
       .from("kijiji_listings")
       .select("*, kijiji_accounts(*)")
@@ -137,7 +128,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       posted: successCount,
       total: drafts.length,
-      ip_check: { country: "CA", isCanadian: true },
       results,
     });
   }
@@ -146,15 +136,6 @@ export async function POST(req: NextRequest) {
 
   if (!listing_id) {
     return NextResponse.json({ error: "listing_id required" }, { status: 400 });
-  }
-
-  // Verify Canadian IP for single post too
-  const loc = await checkServerLocation();
-  if (!loc.isCanadian) {
-    return NextResponse.json({
-      error: `Posting blocked: server IP is in ${loc.country}, not Canada. IP: ${loc.ip}`,
-      ip_check: loc,
-    }, { status: 403 });
   }
 
   const { data: listing, error: listErr } = await supabase
