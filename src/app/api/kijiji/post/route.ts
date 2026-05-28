@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   kijijiLogin,
   kijijiPostAd,
+  kijijiUploadImages,
   buildVehicleAttributes,
 } from "@/lib/kijiji-api";
 import {
@@ -54,6 +55,16 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const images = draft.image_urls ?? [];
+      if ((!draft.price || draft.price <= 0) && images.length === 0) {
+        results.push({
+          listing_id: draft.id,
+          success: false,
+          error: "Skipped: no price and no images",
+        });
+        continue;
+      }
+
       const password = process.env.KIJIJI_SHARED_PASSWORD;
 
       if (!password) {
@@ -89,14 +100,24 @@ export async function POST(req: NextRequest) {
           mileage: draft.mileage,
           transmission: draft.transmission,
           fuel_type: draft.fuel_type,
+          drivetrain: draft.drivetrain,
+          body_type: draft.body_type,
           colour: draft.colour,
         });
+
+        // Upload images to Kijiji if available
+        const sourceImages = (draft.image_urls as string[] | null) ?? [];
+        let kijijiImageUrls: string[] = [];
+        if (sourceImages.length > 0) {
+          kijijiImageUrls = await kijijiUploadImages(session, sourceImages);
+        }
 
         const posted = await kijijiPostAd(session, {
           title: draft.kijiji_title,
           description: uniqueDesc,
           price: draft.price,
           attributes: attrs,
+          imageUrls: kijijiImageUrls,
         });
 
         await supabase
@@ -146,6 +167,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Listing not found" }, { status: 404 });
   }
 
+  const singleImages = listing.image_urls ?? [];
+  if ((!listing.price || listing.price <= 0) && singleImages.length === 0) {
+    return NextResponse.json(
+      { error: "Cannot post: listing has no price and no images" },
+      { status: 400 }
+    );
+  }
+
   const account = listing.kijiji_accounts;
   if (!account) {
     return NextResponse.json({ error: "No account linked" }, { status: 400 });
@@ -173,14 +202,24 @@ export async function POST(req: NextRequest) {
       mileage: listing.mileage,
       transmission: listing.transmission,
       fuel_type: listing.fuel_type,
+      drivetrain: listing.drivetrain,
+      body_type: listing.body_type,
       colour: listing.colour,
     });
+
+    // Upload images to Kijiji if available
+    const listingImages = (listing.image_urls as string[] | null) ?? [];
+    let kijijiImageUrls: string[] = [];
+    if (listingImages.length > 0) {
+      kijijiImageUrls = await kijijiUploadImages(session, listingImages);
+    }
 
     const posted = await kijijiPostAd(session, {
       title: listing.kijiji_title,
       description: uniqueDesc,
       price: listing.price,
       attributes: attrs,
+      imageUrls: kijijiImageUrls,
     });
 
     await supabase

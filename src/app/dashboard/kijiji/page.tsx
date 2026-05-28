@@ -430,14 +430,14 @@ export default function KijijiDashboard() {
                   done={accounts.length > 0}
                 />
                 <ActionButton
-                  label="2. Scrape & Assign Inventory"
-                  description="Pull vehicles from AutoTrader and distribute across accounts"
+                  label="2. Assign Inventory"
+                  description="Distribute unassigned vehicles across accounts (1 per account)"
                   onClick={autoAssign}
                   loading={actionLoading === "assign"}
                 />
                 <ActionButton
                   label="3. Post All Drafts to Kijiji"
-                  description="Submit all draft listings via Kijiji API"
+                  description="Submit all draft listings via Kijiji API (skips $0/no-image listings)"
                   onClick={postAllDrafts}
                   loading={actionLoading === "post_all"}
                   disabled={listings.filter((l) => l.kijiji_status === "draft").length === 0}

@@ -16,7 +16,7 @@ CREATE TABLE kijiji_accounts (
 -- 2. kijiji_listings — vehicle listings assigned to accounts
 CREATE TABLE kijiji_listings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id UUID NOT NULL REFERENCES kijiji_accounts(id) ON DELETE CASCADE,
+  account_id UUID REFERENCES kijiji_accounts(id) ON DELETE SET NULL,
   listing_id UUID REFERENCES listings(id),
   autotrader_title TEXT NOT NULL,
   kijiji_title TEXT NOT NULL,
