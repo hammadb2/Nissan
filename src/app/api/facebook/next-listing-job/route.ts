@@ -16,6 +16,20 @@ export const maxDuration = 30;
 export async function GET() {
   const supabase = getSupabaseAdmin();
 
+  // Check global pause flag set by warning-detected
+  const { data: pauseSetting } = await supabase
+    .from("facebook_settings")
+    .select("value")
+    .eq("key", "facebook_paused")
+    .single();
+
+  if (pauseSetting?.value === "true") {
+    return NextResponse.json({
+      job: null,
+      reason: "Facebook activity paused due to warning. Resume from Boss dashboard.",
+    });
+  }
+
   const now = new Date();
   const calgaryHour = parseInt(
     now.toLocaleString("en-CA", {
