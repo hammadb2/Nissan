@@ -45,13 +45,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Load saved CRM URL, default to production URL
-  const DEFAULT_CRM_URL = "https://nissan-eight.vercel.app";
+  const DEFAULT_CRM_URL = "https://hammadatnissan.vercel.app";
   chrome.storage.local.get(["crmBaseUrl"], (result) => {
-    if (result.crmBaseUrl) {
-      crmUrlInput.value = result.crmBaseUrl;
-    } else {
+    const saved = result.crmBaseUrl;
+    // Auto-fix old wrong URL
+    if (!saved || saved.includes("nissan-eight") || saved.includes("your-")) {
       crmUrlInput.value = DEFAULT_CRM_URL;
       chrome.storage.local.set({ crmBaseUrl: DEFAULT_CRM_URL });
+    } else {
+      crmUrlInput.value = saved;
     }
   });
 
