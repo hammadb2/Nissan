@@ -37,9 +37,28 @@ function getRandomPostingDelay() {
   return randomBetween(minMin * 60 * 1000, maxMin * 60 * 1000);
 }
 
+async function getCrmBaseUrl() {
+  // Check chrome.storage.local first (user-set), then fall back to config
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage) {
+      chrome.storage.local.get(["crmBaseUrl"], (result) => {
+        const stored = result.crmBaseUrl;
+        const config = globalThis.FB_CONFIG || {};
+        resolve(stored || config.CRM_BASE_URL || "");
+      });
+    } else {
+      const config = globalThis.FB_CONFIG || {};
+      resolve(config.CRM_BASE_URL || "");
+    }
+  });
+}
+
 async function crmFetch(endpoint, options = {}) {
-  const config = globalThis.FB_CONFIG || {};
-  const baseUrl = config.CRM_BASE_URL || "";
+  const baseUrl = await getCrmBaseUrl();
+
+  if (!baseUrl || baseUrl.includes("your-")) {
+    throw new Error("CRM Base URL not configured. Set it in the extension popup.");
+  }
 
   const url = `${baseUrl}${endpoint}`;
   const response = await fetch(url, {
@@ -102,7 +121,7 @@ function updateBadge(text, color) {
 async function getState() {
   return new Promise((resolve) => {
     chrome.storage.local.get(
-      ["enabled", "postsToday", "lastPostTime", "lastError", "stats"],
+      ["enabled", "postsToday", "lastPostTime", "lastError", "stats", "currentJob", "crmBaseUrl"],
       (result) => resolve(result)
     );
   });
