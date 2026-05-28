@@ -52,6 +52,10 @@ async function startPolling() {
     await setState({ lastError: "Auto-queue failed: " + err.message });
   }
 
+  // Fire first listing immediately — don't wait for the alarm
+  console.log("[FB Bot] Triggering first listing immediately...");
+  await handleListingPoll();
+
   chrome.alarms.create(ALARM_LISTING_POLL, { periodInMinutes: 1 });
   chrome.alarms.create(ALARM_REPLY_POLL, { periodInMinutes: 0.17 }); // ~10 seconds
   chrome.alarms.create(ALARM_INBOX_POLL, { periodInMinutes: 5 });
