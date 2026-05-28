@@ -21,7 +21,7 @@ const KIJIJI_IMAGE_UPLOAD = "https://mobile-api.kijiji.ca/v1/images/upload";
 // Calgary geo coordinates
 const CALGARY_LAT = "51.0447";
 const CALGARY_LNG = "-114.0719";
-const DEALERSHIP_PHONE = process.env.DEALERSHIP_PHONE || "";
+const DEALERSHIP_PHONE = process.env.DEALERSHIP_PHONE || "5873281721";
 
 // Calgary location ID on Kijiji
 const CALGARY_LOCATION_ID = "1700199";

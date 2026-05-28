@@ -23,16 +23,16 @@ const OPENING_PHRASES = [
 ];
 
 const CLOSING_PHRASES = [
-  "Contact us through Kijiji messaging for more details.",
-  "Send us a message on Kijiji to learn more.",
-  "Reach out through Kijiji messaging to schedule a viewing.",
-  "Message us here on Kijiji for additional information.",
-  "Interested? Send a message through Kijiji.",
-  "Drop us a message on Kijiji to set up a time to see it.",
-  "Send a Kijiji message and we'll get back to you quickly.",
-  "Feel free to message us on Kijiji with any questions.",
-  "Get in touch through Kijiji messaging — we respond fast.",
-  "Have questions? Message us right here on Kijiji.",
+  "Contact us through Kijiji messaging or call/text 587-328-1721.",
+  "Send us a message on Kijiji or call 587-328-1721 to learn more.",
+  "Reach out through Kijiji messaging or call 587-328-1721 to schedule a viewing.",
+  "Message us here on Kijiji or text 587-328-1721 for additional information.",
+  "Interested? Send a message through Kijiji or call 587-328-1721.",
+  "Drop us a message on Kijiji or call/text 587-328-1721 to set up a time to see it.",
+  "Send a Kijiji message or call 587-328-1721 — we'll get back to you quickly.",
+  "Feel free to message us on Kijiji or text 587-328-1721 with any questions.",
+  "Get in touch through Kijiji messaging or call 587-328-1721 — we respond fast.",
+  "Have questions? Message us right here on Kijiji or call 587-328-1721.",
 ];
 
 const LOCATION_PHRASES = [
