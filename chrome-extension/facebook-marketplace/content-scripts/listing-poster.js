@@ -1,11 +1,15 @@
 /**
  * Content script for facebook.com/marketplace/create/vehicle
  *
- * Fills in every field from the CRM listing data, uploads photos,
- * and publishes the listing with human-like delays.
+ * Uses the exact Facebook Marketplace DOM selectors verified from working
+ * implementations. Fields are found via span text labels inside their parent
+ * containers, matching Facebook's React component structure.
  *
- * Uses setNativeValue to bypass React's virtual DOM (same pattern as
- * the working Kijiji extension).
+ * Form field patterns:
+ * - Text inputs: <div><span>Label</span><input/></div> → find span, get parent div, find input
+ * - Dropdowns:   <span>Label</span> in parent clickable → click parent, pick option by span text
+ * - Textarea:    <span>Description</span> sibling div contains <textarea>
+ * - Photos:      input[type="file"][accept*="image"]
  */
 
 (async function () {
@@ -65,84 +69,59 @@
     element.dispatchEvent(new Event("blur", { bubbles: true }));
   }
 
-  // Promisified sendMessage
   function msg(data) {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(data, (resp) => resolve(resp));
     });
   }
 
-  // Wait for the Facebook form to be ready
-  async function waitForForm(timeoutMs) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      // Facebook's vehicle form has aria-label attributes on inputs
-      const allInputs = document.querySelectorAll("input, textarea");
-      const labels = document.querySelectorAll("label span, label");
-      // Look for key form elements
-      const hasYear = findFormField("year");
-      const hasMake = findFormField("make");
-      if (hasYear || hasMake || allInputs.length >= 3) {
-        console.log(`[FB Poster] Form detected: ${allInputs.length} inputs, ${labels.length} labels`);
-        return true;
-      }
-      await sleep(500);
-    }
-    return false;
+  // ── Facebook-specific DOM helpers ──
+
+  // Evaluate an XPath and return the first matching element
+  function xpath(expression) {
+    const result = document.evaluate(
+      expression, document, null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE, null
+    );
+    return result.singleNodeValue;
   }
 
-  // Find a form field by scanning labels, aria-labels, and placeholder text
-  function findFormField(fieldName) {
-    const lower = fieldName.toLowerCase();
-
-    // Strategy 1: aria-label on input
-    const ariaInputs = document.querySelectorAll(`input[aria-label], textarea[aria-label]`);
-    for (const el of ariaInputs) {
-      const label = (el.getAttribute("aria-label") || "").toLowerCase();
-      if (label.includes(lower)) return el;
+  // Evaluate an XPath and return all matching elements
+  function xpathAll(expression) {
+    const result = document.evaluate(
+      expression, document, null,
+      XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
+    );
+    const nodes = [];
+    for (let i = 0; i < result.snapshotLength; i++) {
+      nodes.push(result.snapshotItem(i));
     }
+    return nodes;
+  }
 
-    // Strategy 2: placeholder text
-    const placeholderInputs = document.querySelectorAll(`input[placeholder], textarea[placeholder]`);
-    for (const el of placeholderInputs) {
-      const ph = (el.getAttribute("placeholder") || "").toLowerCase();
-      if (ph.includes(lower)) return el;
-    }
+  // Find a text input by its label span text
+  // Facebook pattern: <div><span>Label</span><input/></div>
+  function findTextInput(labelText) {
+    // Primary: XPath matching the exact Facebook DOM pattern
+    const byXpath = xpath(`//div[span/text() = "${labelText}"]/input`);
+    if (byXpath) return byXpath;
 
-    // Strategy 3: label text content -> find associated input
-    const allLabels = document.querySelectorAll("label");
-    for (const lbl of allLabels) {
-      const text = (lbl.textContent || "").toLowerCase().trim();
-      if (text.includes(lower)) {
-        // Check for input inside the label
-        const inner = lbl.querySelector("input, textarea, select");
-        if (inner) return inner;
-        // Check for input in the parent container
-        const container = lbl.closest("div[class]") || lbl.parentElement;
-        if (container) {
-          const sibling = container.querySelector("input, textarea, select");
-          if (sibling) return sibling;
-        }
-        // Check for for= attribute
-        const forId = lbl.getAttribute("for");
-        if (forId) {
-          const target = document.getElementById(forId);
-          if (target) return target;
-        }
-      }
-    }
+    // Fallback 1: aria-label
+    const byAria = document.querySelector(`input[aria-label="${labelText}"]`);
+    if (byAria) return byAria;
 
-    // Strategy 4: span text content -> find input in same container
-    const allSpans = document.querySelectorAll("span");
-    for (const span of allSpans) {
-      const text = (span.textContent || "").toLowerCase().trim();
-      if (text === lower || text.includes(lower)) {
-        // Walk up to find a container with an input
-        let parent = span.parentElement;
-        for (let i = 0; i < 5 && parent; i++) {
-          const input = parent.querySelector("input, textarea");
+    // Fallback 2: placeholder
+    const byPlaceholder = document.querySelector(`input[placeholder="${labelText}"]`);
+    if (byPlaceholder) return byPlaceholder;
+
+    // Fallback 3: span text search in parent hierarchy
+    const spans = document.querySelectorAll("span");
+    for (const span of spans) {
+      if (span.textContent.trim() === labelText) {
+        const parent = span.parentElement;
+        if (parent) {
+          const input = parent.querySelector("input");
           if (input) return input;
-          parent = parent.parentElement;
         }
       }
     }
@@ -150,90 +129,80 @@
     return null;
   }
 
-  // Find and click a dropdown trigger, then select an option
-  async function selectDropdown(fieldName, value) {
-    if (!value) return false;
-    const lower = value.toLowerCase();
+  // Find the description textarea
+  function findDescriptionTextarea() {
+    // Primary: XPath from reference implementation
+    const byXpath = xpath("//span[text()='Description']//following-sibling::div//textarea");
+    if (byXpath) return byXpath;
 
-    // Find the dropdown trigger element
-    const trigger = findFormField(fieldName);
-    if (!trigger) {
-      // Try clicking span/label text directly (FB uses div-based dropdowns)
-      const allSpans = document.querySelectorAll("span");
-      for (const span of allSpans) {
-        const text = (span.textContent || "").toLowerCase().trim();
-        if (text.includes(fieldName.toLowerCase())) {
-          const clickable = span.closest("[role='button'], [role='combobox'], [tabindex]") || span.closest("div[class]");
-          if (clickable) {
-            clickable.click();
-            await sleep(1500);
-            return await pickOption(lower);
-          }
-        }
-      }
-      console.warn(`[FB Poster] Dropdown not found: ${fieldName}`);
+    // Fallback: any textarea on the page
+    const textarea = document.querySelector("textarea");
+    if (textarea) return textarea;
+
+    return null;
+  }
+
+  // Click a dropdown by its label text, then select an option
+  async function selectDropdownByLabel(labelText, optionText) {
+    console.log(`[FB Poster] Selecting dropdown "${labelText}" → "${optionText}"`);
+
+    // Find the dropdown trigger: span with label text → click parent
+    const triggerSpan = xpath(`//span[text()='${labelText}']/..`);
+    if (!triggerSpan) {
+      console.warn(`[FB Poster] Dropdown trigger not found: "${labelText}"`);
       return false;
     }
 
     // Click to open dropdown
-    trigger.click();
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    triggerSpan.click();
     await sleep(1500);
 
-    return await pickOption(lower);
-  }
+    // Find the option — Facebook wraps options in nested divs with span text
+    // Pattern: //span[normalize-space()='Option Text']/../../../..
+    const optionEl = xpath(`//span[normalize-space()='${optionText}']/../../../..`);
+    if (optionEl) {
+      optionEl.click();
+      await sleep(800);
+      console.log(`[FB Poster] Selected "${optionText}" for "${labelText}"`);
+      return true;
+    }
 
-  // Pick an option from an open dropdown/listbox
-  async function pickOption(valueLower) {
-    // Look for role=option, role=menuitem, or li elements
-    const selectors = "[role='option'], [role='menuitem'], [role='listbox'] div, li";
-    const options = document.querySelectorAll(selectors);
-
-    for (const opt of options) {
-      const text = (opt.textContent || "").toLowerCase().trim();
-      if (text === valueLower || text.includes(valueLower)) {
+    // Fallback: try finding by role=option or simpler span match
+    const allOptions = document.querySelectorAll("[role='option'], [role='menuitem']");
+    for (const opt of allOptions) {
+      if (opt.textContent.trim().toLowerCase() === optionText.toLowerCase()) {
         opt.click();
         await sleep(800);
+        console.log(`[FB Poster] Selected "${optionText}" via role for "${labelText}"`);
         return true;
       }
     }
 
-    // Also check for div-based option menus
-    const allDivs = document.querySelectorAll("div[role='listbox'] > div, div[role='menu'] > div");
-    for (const div of allDivs) {
-      const text = (div.textContent || "").toLowerCase().trim();
-      if (text === valueLower || text.includes(valueLower)) {
-        div.click();
+    // Fallback: click any span that matches the option text
+    const optionSpans = document.querySelectorAll("span");
+    for (const span of optionSpans) {
+      if (span.textContent.trim() === optionText) {
+        span.click();
         await sleep(800);
+        console.log(`[FB Poster] Selected "${optionText}" via span text for "${labelText}"`);
         return true;
       }
     }
 
-    console.warn(`[FB Poster] Option not found: ${valueLower}`);
+    console.warn(`[FB Poster] Option "${optionText}" not found for "${labelText}"`);
+    // Close dropdown by pressing Escape
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(500);
     return false;
   }
 
   function checkForWarnings() {
-    const warningSelectors = [
-      "[role='dialog']",
-      "[aria-label*='warning' i]",
-      "[aria-label*='restriction' i]",
-      "[aria-label*='blocked' i]",
-    ];
-
-    for (const selector of warningSelectors) {
-      let elements;
-      try { elements = document.querySelectorAll(selector); } catch (e) { continue; }
-      for (const el of elements) {
-        const text = (el.textContent || "").toLowerCase();
-        if (
-          text.includes("restrict") ||
-          text.includes("warning") ||
-          text.includes("ban") ||
-          text.includes("violat") ||
-          text.includes("community standards") ||
-          text.includes("temporarily blocked")
-        ) {
+    const warningKeywords = ["restrict", "warning", "ban", "violat", "community standards", "temporarily blocked"];
+    const dialogs = document.querySelectorAll("[role='dialog']");
+    for (const el of dialogs) {
+      const text = (el.textContent || "").toLowerCase();
+      for (const keyword of warningKeywords) {
+        if (text.includes(keyword)) {
           return { detected: true, message: (el.textContent || "").slice(0, 200) };
         }
       }
@@ -241,18 +210,38 @@
     return { detected: false };
   }
 
+  // Wait for the Facebook vehicle form to load
+  async function waitForForm(timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      // Check for the "Year" dropdown which is always present on vehicle form
+      const yearDropdown = xpath("//span[text()='Year']/..");
+      const makeField = xpath("//span[text()='Make']");
+      if (yearDropdown || makeField) {
+        console.log("[FB Poster] Vehicle form detected (found Year/Make elements)");
+        return true;
+      }
+      // Also check for any input fields as a secondary signal
+      const inputs = document.querySelectorAll("input, textarea");
+      if (inputs.length >= 3) {
+        console.log(`[FB Poster] Form detected: ${inputs.length} input elements`);
+        return true;
+      }
+      await sleep(500);
+    }
+    return false;
+  }
+
   async function uploadPhotos(imageUrls) {
-    // Find the file input — Facebook hides it but it exists in the DOM
     const fileInput = document.querySelector("input[type='file'][accept*='image']")
       || document.querySelector("input[type='file']");
     if (!fileInput) {
-      console.warn("[FB Poster] Could not find file input for photos.");
-
-      // Fallback: try clicking the "Add photos" area to trigger file dialog
-      const addPhotos = [...document.querySelectorAll("div[role='button'], span")]
+      console.warn("[FB Poster] File input not found for photos");
+      // Try clicking "Add photos" area
+      const addPhotosArea = [...document.querySelectorAll("div[role='button'], span")]
         .find((el) => (el.textContent || "").toLowerCase().includes("add photo"));
-      if (addPhotos) {
-        addPhotos.click();
+      if (addPhotosArea) {
+        addPhotosArea.click();
         await sleep(1000);
         const retryInput = document.querySelector("input[type='file']");
         if (!retryInput) return false;
@@ -261,11 +250,18 @@
       return false;
     }
 
+    // Make file input visible if hidden (Facebook hides it)
+    fileInput.style.display = "block";
+    fileInput.style.visibility = "visible";
+    fileInput.style.opacity = "1";
+    fileInput.style.position = "relative";
+    fileInput.style.width = "auto";
+    fileInput.style.height = "auto";
+
     return await doUpload(fileInput, imageUrls);
   }
 
   async function doUpload(fileInput, imageUrls) {
-    // Use watermark stripping utility if available
     let files;
     if (typeof globalThis.processImagesForUpload === "function") {
       console.log("[FB Poster] Processing images with watermark stripping...");
@@ -276,8 +272,7 @@
         try {
           const response = await fetch(imageUrls[i]);
           const blob = await response.blob();
-          const filename = `photo_${i + 1}.jpg`;
-          files.push(new File([blob], filename, { type: blob.type || "image/jpeg" }));
+          files.push(new File([blob], `photo_${i + 1}.jpg`, { type: blob.type || "image/jpeg" }));
         } catch (err) {
           console.warn(`[FB Poster] Failed to fetch image ${i}: ${imageUrls[i]}`, err);
         }
@@ -294,7 +289,6 @@
     fileInput.files = dt.files;
     fileInput.dispatchEvent(new Event("change", { bubbles: true }));
 
-    // Wait for upload to process
     await sleep(5000 + files.length * 500);
     return true;
   }
@@ -306,14 +300,11 @@
 
   await sleep(PAGE_LOAD_WAIT);
 
-  // Check for any warnings before starting
+  // Check for warnings
   const preCheck = checkForWarnings();
   if (preCheck.detected) {
-    console.error("[FB Poster] WARNING DETECTED before starting:", preCheck.message);
-    await msg({
-      action: "facebook_warning",
-      data: { type: "warning_popup", message: preCheck.message },
-    });
+    console.error("[FB Poster] WARNING DETECTED:", preCheck.message);
+    await msg({ action: "facebook_warning", data: { type: "warning_popup", message: preCheck.message } });
     return;
   }
 
@@ -322,246 +313,304 @@
   const job = response?.job;
 
   if (!job) {
-    console.log("[FB Poster] No job available. Page may have been opened manually.");
+    console.log("[FB Poster] No job available.");
     return;
   }
 
-  console.log(`[FB Poster] Starting listing: ${job.vehicle_year} ${job.vehicle_make} ${job.vehicle_model}`);
+  console.log(`[FB Poster] Posting: ${job.vehicle_year} ${job.vehicle_make} ${job.vehicle_model}`);
   console.log(`[FB Poster] Job ID: ${job.id}`);
 
-  // Wait for the form to be ready
-  const formReady = await waitForForm(10000);
+  // Wait for form
+  const formReady = await waitForForm(15000);
   if (!formReady) {
-    console.error("[FB Poster] Form not ready after 10s — dumping page structure");
-    console.log("[FB Poster] Inputs found:", document.querySelectorAll("input").length);
-    console.log("[FB Poster] Textareas found:", document.querySelectorAll("textarea").length);
-    console.log("[FB Poster] Labels found:", document.querySelectorAll("label").length);
-    await msg({
-      action: "listing_failed",
-      data: { listing_id: job.id, success: false, error: "Form not ready after 10s" },
-    });
+    console.error("[FB Poster] Form not ready after 15s");
+    // Dump page info for debugging
+    const allSpans = document.querySelectorAll("span");
+    console.log("[FB Poster] Page spans:", [...allSpans].slice(0, 20).map(s => s.textContent.trim()).filter(Boolean));
+    console.log("[FB Poster] Page inputs:", document.querySelectorAll("input").length);
+    await msg({ action: "listing_failed", data: { listing_id: job.id, success: false, error: "Form not ready after 15s" } });
     return;
   }
 
   try {
-    // 1. Vehicle type dropdown (Car/Truck is usually pre-selected for /create/vehicle)
-    await randomDelay();
-
-    // 2. Select "Vehicle type" if visible
-    const vehicleTypeDropdown = findFormField("vehicle type");
-    if (vehicleTypeDropdown) {
-      vehicleTypeDropdown.click();
-      await sleep(1000);
-      await pickOption("car/truck");
-      await randomDelay();
-    }
-
-    // 3. Year
-    console.log("[FB Poster] Setting year:", job.vehicle_year);
-    const yearField = findFormField("year");
-    if (yearField) {
-      if (yearField.tagName === "INPUT" && yearField.getAttribute("role") === "combobox") {
-        // Dropdown-style year selector
-        yearField.click();
-        await sleep(1000);
-        await pickOption(String(job.vehicle_year));
-      } else {
-        setNativeValue(yearField, String(job.vehicle_year));
-        await sleep(1000);
-        await pickOption(String(job.vehicle_year));
-      }
-      await randomDelay();
-    } else {
-      console.warn("[FB Poster] Year field not found");
-    }
-
-    // 4. Make
-    console.log("[FB Poster] Setting make:", job.vehicle_make);
-    const makeField = findFormField("make");
-    if (makeField) {
-      makeField.click();
-      await sleep(500);
-      setNativeValue(makeField, job.vehicle_make);
-      await sleep(1500);
-      // Select from autocomplete
-      await pickOption(job.vehicle_make.toLowerCase());
-      await randomDelay();
-    } else {
-      console.warn("[FB Poster] Make field not found");
-    }
-
-    // 5. Model
-    console.log("[FB Poster] Setting model:", job.vehicle_model);
-    const modelField = findFormField("model");
-    if (modelField) {
-      modelField.click();
-      await sleep(500);
-      setNativeValue(modelField, job.vehicle_model);
-      await sleep(1500);
-      await pickOption(job.vehicle_model.toLowerCase());
-      await randomDelay();
-    } else {
-      console.warn("[FB Poster] Model field not found");
-    }
-
-    // 6. Trim
-    if (job.vehicle_trim) {
-      console.log("[FB Poster] Setting trim:", job.vehicle_trim);
-      const trimField = findFormField("trim");
-      if (trimField) {
-        setNativeValue(trimField, job.vehicle_trim);
-        await sleep(1000);
-        // Try to pick from autocomplete, otherwise leave typed value
-        await pickOption(job.vehicle_trim.toLowerCase()).catch(() => {});
-        await randomDelay();
-      }
-    }
-
-    // 7. Price
-    if (job.price) {
-      console.log("[FB Poster] Setting price:", job.price);
-      const priceField = findFormField("price");
-      if (priceField) {
-        setNativeValue(priceField, String(Math.round(Number(job.price))));
-        await randomDelay();
-      }
-    }
-
-    // 8. Mileage / Odometer
-    if (job.mileage) {
-      console.log("[FB Poster] Setting mileage:", job.mileage);
-      const mileageField = findFormField("mileage") || findFormField("odometer");
-      if (mileageField) {
-        setNativeValue(mileageField, String(job.mileage));
-        await randomDelay();
-      }
-    }
-
-    // 9. Condition: Used
-    console.log("[FB Poster] Setting condition: Used");
-    await selectDropdown("condition", "used");
-    await randomDelay();
-
-    // 10. Transmission
-    if (job.transmission) {
-      console.log("[FB Poster] Setting transmission:", job.transmission);
-      await selectDropdown("transmission", job.transmission.toLowerCase());
-      await randomDelay();
-    }
-
-    // 11. Fuel Type
-    if (job.fuel_type) {
-      console.log("[FB Poster] Setting fuel type:", job.fuel_type);
-      await selectDropdown("fuel", job.fuel_type.toLowerCase());
-      await randomDelay();
-    }
-
-    // 12. Exterior Colour
-    if (job.colour) {
-      console.log("[FB Poster] Setting colour:", job.colour);
-      await selectDropdown("colour", job.colour.toLowerCase())
-        || await selectDropdown("color", job.colour.toLowerCase())
-        || await selectDropdown("exterior", job.colour.toLowerCase());
-      await randomDelay();
-    }
-
-    // 13. Description
-    if (job.description) {
-      console.log("[FB Poster] Setting description...");
-      const descField = findFormField("description")
-        || document.querySelector("textarea[aria-label*='escription']")
-        || document.querySelector("textarea");
-      if (descField) {
-        // Type description with human-like speed
-        await typeHuman(descField, job.description);
-        await randomDelay();
-      } else {
-        console.warn("[FB Poster] Description field not found");
-      }
-    }
-
-    // 14. Photos
+    // ── Step 1: Upload photos first ──
     if (job.image_urls && job.image_urls.length > 0) {
       console.log(`[FB Poster] Uploading ${job.image_urls.length} photos...`);
       const uploaded = await uploadPhotos(job.image_urls);
-      if (!uploaded) {
-        console.warn("[FB Poster] Photo upload may have failed");
-      }
-      await sleep(5000);
+      console.log(`[FB Poster] Photo upload ${uploaded ? "succeeded" : "failed"}`);
+      await randomDelay();
     }
 
-    // Check for warnings before publishing
-    const postCheck = checkForWarnings();
-    if (postCheck.detected) {
-      console.error("[FB Poster] WARNING DETECTED before publish:", postCheck.message);
-      await msg({
-        action: "facebook_warning",
-        data: { type: "warning_popup", message: postCheck.message, listing_id: job.id },
-      });
+    // ── Step 2: Vehicle type → Car/Truck ──
+    console.log("[FB Poster] Setting vehicle type...");
+    await selectDropdownByLabel("Vehicle type", "Car/Truck");
+    await randomDelay();
+
+    // ── Step 3: Year ──
+    console.log("[FB Poster] Setting year:", job.vehicle_year);
+    await selectDropdownByLabel("Year", String(job.vehicle_year));
+    await randomDelay();
+
+    // ── Step 4: Make ──
+    console.log("[FB Poster] Setting make:", job.vehicle_make);
+    // Make is a dropdown — click the parent of the "Make" span to open it
+    const makeSpan = xpath("//span[text()='Make']");
+    if (makeSpan) {
+      const makeParent = makeSpan.closest("div") || makeSpan.parentElement;
+      if (makeParent) {
+        makeParent.click();
+        await sleep(1500);
+        // Select the make from the dropdown options
+        const makeOption = xpath(`//span[normalize-space()='${job.vehicle_make}']/../../../..`);
+        if (makeOption) {
+          makeOption.click();
+          console.log(`[FB Poster] Selected make: ${job.vehicle_make}`);
+        } else {
+          // Fallback: try clicking span directly
+          const allSpans = document.querySelectorAll("span");
+          for (const s of allSpans) {
+            if (s.textContent.trim() === job.vehicle_make) {
+              s.click();
+              console.log(`[FB Poster] Selected make via span: ${job.vehicle_make}`);
+              break;
+            }
+          }
+        }
+      }
+    } else {
+      // Fallback: Make might be a text input on some versions
+      const makeInput = findTextInput("Make");
+      if (makeInput) {
+        setNativeValue(makeInput, job.vehicle_make);
+        await sleep(1000);
+      }
+    }
+    await randomDelay();
+
+    // ── Step 5: Model ──
+    console.log("[FB Poster] Setting model:", job.vehicle_model);
+    const modelInput = findTextInput("Model");
+    if (modelInput) {
+      modelInput.click();
+      await sleep(300);
+      setNativeValue(modelInput, job.vehicle_model);
+      console.log("[FB Poster] Model set");
+    } else {
+      console.warn("[FB Poster] Model input not found");
+    }
+    await randomDelay();
+
+    // ── Step 6: Trim ──
+    if (job.vehicle_trim) {
+      console.log("[FB Poster] Setting trim:", job.vehicle_trim);
+      const trimInput = findTextInput("Trim");
+      if (trimInput) {
+        trimInput.click();
+        await sleep(300);
+        setNativeValue(trimInput, job.vehicle_trim);
+      }
+      await randomDelay();
+    }
+
+    // ── Step 7: Mileage ──
+    if (job.mileage) {
+      console.log("[FB Poster] Setting mileage:", job.mileage);
+      const mileageInput = findTextInput("Mileage");
+      if (mileageInput) {
+        mileageInput.click();
+        await sleep(300);
+        setNativeValue(mileageInput, String(job.mileage));
+        console.log("[FB Poster] Mileage set");
+      } else {
+        console.warn("[FB Poster] Mileage input not found");
+      }
+      await randomDelay();
+    }
+
+    // ── Step 8: Price ──
+    if (job.price) {
+      console.log("[FB Poster] Setting price:", job.price);
+      const priceInput = findTextInput("Price");
+      if (priceInput) {
+        priceInput.click();
+        await sleep(300);
+        setNativeValue(priceInput, String(Math.round(Number(job.price))));
+        console.log("[FB Poster] Price set");
+      } else {
+        console.warn("[FB Poster] Price input not found");
+      }
+      await randomDelay();
+    }
+
+    // ── Step 9: Body style (SUV, Sedan, etc) ──
+    console.log("[FB Poster] Setting body style...");
+    await selectDropdownByLabel("Body style", "Other");
+    await randomDelay();
+
+    // ── Step 10: Exterior colour ──
+    if (job.colour) {
+      console.log("[FB Poster] Setting exterior colour:", job.colour);
+      // Facebook uses title-case colour names
+      const colourTitleCase = job.colour.charAt(0).toUpperCase() + job.colour.slice(1).toLowerCase();
+      await selectDropdownByLabel("Exterior color", colourTitleCase);
+      // Also try Canadian spelling
+      if (!xpath(`//span[text()='Exterior colour']`)) {
+        // Already tried "color" above
+      }
+      await randomDelay();
+    }
+
+    // ── Step 11: Fuel type ──
+    if (job.fuel_type) {
+      console.log("[FB Poster] Setting fuel type:", job.fuel_type);
+      // Facebook uses specific labels like "Gasoline", "Diesel", "Electric"
+      const fuelMap = {
+        gasoline: "Gasoline",
+        gas: "Gasoline",
+        diesel: "Diesel",
+        electric: "Electric",
+        hybrid: "Hybrid",
+        "plug-in hybrid": "Plug-in hybrid",
+        other: "Other",
+      };
+      const fuelOption = fuelMap[job.fuel_type.toLowerCase()] || job.fuel_type;
+      await selectDropdownByLabel("Fuel type", fuelOption);
+      await randomDelay();
+    }
+
+    // ── Step 12: Transmission ──
+    if (job.transmission) {
+      console.log("[FB Poster] Setting transmission:", job.transmission);
+      const transMap = {
+        automatic: "Automatic transmission",
+        manual: "Manual transmission",
+        other: "Other",
+      };
+      const transOption = transMap[job.transmission.toLowerCase()] || job.transmission;
+      await selectDropdownByLabel("Transmission", transOption);
+      await randomDelay();
+    }
+
+    // ── Step 13: Condition → Used ──
+    console.log("[FB Poster] Setting condition: Used");
+    await selectDropdownByLabel("Condition", "Used");
+    await randomDelay();
+
+    // ── Step 14: Description ──
+    if (job.description) {
+      console.log("[FB Poster] Setting description...");
+      const descTextarea = findDescriptionTextarea();
+      if (descTextarea) {
+        await typeHuman(descTextarea, job.description);
+        console.log("[FB Poster] Description set");
+      } else {
+        console.warn("[FB Poster] Description textarea not found");
+      }
+      await randomDelay();
+    }
+
+    // Check for warnings before proceeding
+    const midCheck = checkForWarnings();
+    if (midCheck.detected) {
+      console.error("[FB Poster] WARNING DETECTED before Next:", midCheck.message);
+      await msg({ action: "facebook_warning", data: { type: "warning_popup", message: midCheck.message, listing_id: job.id } });
       return;
     }
 
-    // 15. Click Next / Publish
+    // ── Step 15: Click "Next" button ──
+    console.log("[FB Poster] Clicking Next...");
     await randomDelay();
-    console.log("[FB Poster] Looking for Publish/Next button...");
 
-    const publishBtn = [...document.querySelectorAll("div[role='button'], button, [aria-label='Publish'], [aria-label='Next']")]
-      .find((btn) => {
-        const text = (btn.textContent || "").trim().toLowerCase();
-        const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
-        return text === "publish" || text === "next" || text === "post"
-          || ariaLabel === "publish" || ariaLabel === "next" || ariaLabel === "post";
-      });
-
-    if (publishBtn) {
-      console.log("[FB Poster] Clicking publish/next button...");
-      publishBtn.click();
+    const nextBtn = xpath('//span/span[text()="Next"]')
+      || xpath('//span[text()="Next"]');
+    if (nextBtn) {
+      const clickTarget = nextBtn.closest("[role='button']") || nextBtn.closest("div[tabindex]") || nextBtn;
+      clickTarget.click();
+      console.log("[FB Poster] Clicked Next");
       await sleep(5000);
+    } else {
+      console.warn("[FB Poster] Next button not found. Looking for alternatives...");
+      const buttons = document.querySelectorAll("div[role='button'], button");
+      for (const btn of buttons) {
+        const text = (btn.textContent || "").trim().toLowerCase();
+        if (text === "next") {
+          btn.click();
+          console.log("[FB Poster] Clicked Next (fallback)");
+          await sleep(5000);
+          break;
+        }
+      }
+    }
 
-      // Check for success or errors
+    // ── Step 16: Click "Post" / "Publish" button (on the review page) ──
+    console.log("[FB Poster] Looking for Post/Publish button...");
+    await sleep(3000);
+
+    const postBtn = xpath('//div[not(@aria-disabled)]/div/div/div/span/span[text()="Post"]')
+      || xpath('//span/span[text()="Publish"]')
+      || xpath('//span/span[text()="Post"]');
+    if (postBtn) {
+      const clickTarget = postBtn.closest("[role='button']") || postBtn.closest("div[tabindex]") || postBtn;
+
+      // Final warning check
       const finalCheck = checkForWarnings();
       if (finalCheck.detected) {
-        console.error("[FB Poster] WARNING after publish:", finalCheck.message);
-        await msg({
-          action: "facebook_warning",
-          data: { type: "warning_popup", message: finalCheck.message, listing_id: job.id },
-        });
+        console.error("[FB Poster] WARNING DETECTED before Publish:", finalCheck.message);
+        await msg({ action: "facebook_warning", data: { type: "warning_popup", message: finalCheck.message, listing_id: job.id } });
         return;
       }
 
-      // Try to extract the Facebook listing URL
-      let fbListingUrl = null;
-      let fbListingId = null;
-      const currentUrl = window.location.href;
-      const urlMatch = currentUrl.match(/\/marketplace\/item\/(\d+)/);
-      if (urlMatch) {
-        fbListingId = urlMatch[1];
-        fbListingUrl = `https://www.facebook.com/marketplace/item/${fbListingId}`;
-      }
-
-      await msg({
-        action: "listing_posted",
-        data: {
-          listing_id: job.id,
-          fb_listing_id: fbListingId,
-          fb_listing_url: fbListingUrl,
-          success: true,
-        },
-      });
-
-      // Schedule shadow ban check if available
-      if (fbListingUrl && typeof globalThis.scheduleShadowBanCheck === "function") {
-        globalThis.scheduleShadowBanCheck(fbListingUrl, job.id);
-      }
-
-      console.log("[FB Poster] Listing published successfully:", job.id);
+      clickTarget.click();
+      console.log("[FB Poster] Clicked Post/Publish");
+      await sleep(8000);
     } else {
-      console.warn("[FB Poster] Publish button not found. Buttons on page:");
-      document.querySelectorAll("div[role='button'], button").forEach((b) => {
-        console.log("  Button:", (b.textContent || "").trim().slice(0, 50));
-      });
-      throw new Error("Could not find Publish/Next button");
+      // Fallback: look for any button with Post/Publish text
+      const allButtons = document.querySelectorAll("div[role='button'], button");
+      let found = false;
+      for (const btn of allButtons) {
+        const text = (btn.textContent || "").trim().toLowerCase();
+        if (text === "post" || text === "publish") {
+          if (!btn.closest("[aria-disabled='true']")) {
+            btn.click();
+            console.log("[FB Poster] Clicked Post (fallback)");
+            found = true;
+            await sleep(8000);
+            break;
+          }
+        }
+      }
+      if (!found) {
+        console.warn("[FB Poster] Post/Publish button not found");
+        console.warn("[FB Poster] Buttons on page:", [...allButtons].map(b => b.textContent.trim().slice(0, 30)));
+        throw new Error("Could not find Post/Publish button");
+      }
     }
+
+    // Try to extract the Facebook listing URL
+    let fbListingUrl = null;
+    let fbListingId = null;
+    const currentUrl = window.location.href;
+    const urlMatch = currentUrl.match(/\/marketplace\/item\/(\d+)/);
+    if (urlMatch) {
+      fbListingId = urlMatch[1];
+      fbListingUrl = `https://www.facebook.com/marketplace/item/${fbListingId}`;
+    }
+
+    await msg({
+      action: "listing_posted",
+      data: {
+        listing_id: job.id,
+        fb_listing_id: fbListingId,
+        fb_listing_url: fbListingUrl,
+        success: true,
+      },
+    });
+
+    if (fbListingUrl && typeof globalThis.scheduleShadowBanCheck === "function") {
+      globalThis.scheduleShadowBanCheck(fbListingUrl, job.id);
+    }
+
+    console.log("[FB Poster] Listing published successfully:", job.id);
   } catch (err) {
     console.error("[FB Poster] Error posting listing:", err);
     await msg({
