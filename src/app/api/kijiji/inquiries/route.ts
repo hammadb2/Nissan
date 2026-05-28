@@ -85,18 +85,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (kijijiListingId) {
-      await supabase.rpc("increment_inquiry_count", {
+      const { error: rpcError } = await supabase.rpc("increment_inquiry_count", {
         listing_id: kijijiListingId,
-      }).then(undefined, () => {
-        supabase
+      });
+
+      if (rpcError) {
+        const { data: currentListing } = await supabase
+          .from("kijiji_listings")
+          .select("inquiry_count")
+          .eq("id", kijijiListingId)
+          .single();
+
+        await supabase
           .from("kijiji_listings")
           .update({
-            inquiry_count: (data as { inquiry_count?: number }).inquiry_count
-              ? ((data as { inquiry_count?: number }).inquiry_count ?? 0) + 1
-              : 1,
+            inquiry_count: ((currentListing?.inquiry_count as number) ?? 0) + 1,
           })
           .eq("id", kijijiListingId);
-      });
+      }
     }
 
     return NextResponse.json(data, { status: 201 });
@@ -122,8 +128,7 @@ export async function POST(req: NextRequest) {
     const account = listing?.kijiji_accounts;
 
     if (account && listing?.kijiji_ad_id) {
-      const pwKey = `KIJIJI_PW_${account.employee_email.split("@")[0].replace(/\./g, "_").toUpperCase()}`;
-      const password = process.env[pwKey];
+      const password = process.env.KIJIJI_SHARED_PASSWORD;
 
       if (password) {
         try {

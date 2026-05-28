@@ -70,7 +70,7 @@ function buildAdXml(payload: KijijiAdPayload, email: string): string {
   const address = payload.address || "Calgary, AB, Canada";
 
   let priceXml = "";
-  if (payload.price != null && payload.price > 0) {
+  if (payload.price != null && payload.price > 100) {
     priceXml = `
     <ad:price>
       <types:price-type>
