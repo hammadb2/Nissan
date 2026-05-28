@@ -2,7 +2,7 @@
  * Extension configuration — edit CRM_BASE_URL before loading.
  */
 const CONFIG = {
-  CRM_BASE_URL: "https://nissan-eight.vercel.app",
+  CRM_BASE_URL: "https://hammadatnissan.vercel.app",
 
   // Pacing rules
   MAX_LISTINGS_PER_DAY: 10,
